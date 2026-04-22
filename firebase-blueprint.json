@@ -1,0 +1,190 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System participant",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["USER", "ADMIN", "ADD_ADMIN", "MONITOR"] },
+        "warningLevel": { "type": "number" },
+        "debtOwed": { "type": "number" },
+        "debtToMe": { "type": "number" },
+        "ratingAverage": { "type": "number" },
+        "ratingCount": { "type": "number" },
+        "totalLendingTransactions": { "type": "number" },
+        "isPermanentlyRemoved": { "type": "boolean" },
+        "restrictedUntil": { "type": "string" },
+        "communityServicesNeeded": { "type": "number" }
+      },
+      "required": ["username", "password", "role"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Work exchange record",
+      "type": "object",
+      "properties": {
+        "askerId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "workName": { "type": "string" },
+        "pages": { "type": "number" },
+        "debtAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED"] },
+        "rating": { "type": "number" },
+        "timestamp": { "type": "string" },
+        "isForgiven": { "type": "boolean" }
+      },
+      "required": ["askerId", "senderId", "workName", "pages", "debtAmount", "status"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Admin posted updates",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["content", "authorId", "timestamp"]
+    },
+    "Complaint": {
+      "title": "Complaint",
+      "description": "Anonymous submission",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "reviewedBy": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["content", "timestamp"]
+    },
+    "Dispute": {
+      "title": "Dispute",
+      "description": "Issues and verdicts",
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["ONGOING", "RESOLVED"] },
+        "verdict": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["description", "status", "date"]
+    },
+    "GroupPost": {
+      "title": "Group Post",
+      "description": "Post in a group",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["groupId", "authorId", "content", "timestamp"]
+    },
+    "RoleConfig": {
+      "title": "Role Configuration",
+      "description": "Centralized role assignment lists",
+      "type": "object",
+      "properties": {
+        "admins": { "type": "array", "items": { "type": "string" } },
+        "monitors": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["admins", "monitors"]
+    },
+    "SystemStatus": {
+      "title": "System Status",
+      "description": "Global emergency and state settings",
+      "type": "object",
+      "properties": {
+        "emergencyLevel": { "type": "number", "enum": [1, 2, 3] },
+        "updatedBy": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["emergencyLevel", "updatedBy", "timestamp"]
+    },
+    "Bill": {
+      "title": "Bill",
+      "description": "Proposed rule or policy",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "lastEditedBy": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["title", "description", "createdBy", "timestamp"]
+    },
+    "BillComment": {
+      "title": "Bill Comment",
+      "description": "Public comment on a bill",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["userId", "message", "timestamp"]
+    },
+    "BillStaffComment": {
+      "title": "Bill Staff Comment",
+      "description": "Admin/Monitor only comment on a bill",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["userId", "role", "message", "timestamp"]
+    }
+  },
+  "firestore": {
+    "systemStatus/{id}": {
+      "schema": { "$ref": "#/entities/SystemStatus" },
+      "description": "Global system status and emergency level"
+    },
+    "roles_config/{configId}": {
+      "schema": { "$ref": "#/entities/RoleConfig" },
+      "description": "Global role configuration document"
+    },
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Collection of users"
+    },
+    "transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Collection of work exchange transactions"
+    },
+    "announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Collection of admin announcements"
+    },
+    "complaints/{complaintId}": {
+      "schema": { "$ref": "#/entities/Complaint" },
+      "description": "Collection of anonymous complaints"
+    },
+    "disputes/{disputeId}": {
+      "schema": { "$ref": "#/entities/Dispute" },
+      "description": "Collection of resolving issues"
+    },
+    "groups/{groupId}/posts/{postId}": {
+      "schema": { "$ref": "#/entities/GroupPost" },
+      "description": "Posts within specific groups"
+    },
+    "bills/{billId}": {
+      "schema": { "$ref": "#/entities/Bill" },
+      "description": "Collection of proposed bills"
+    },
+    "bills/{billId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/BillComment" },
+      "description": "Public comments on a bill"
+    },
+    "bills/{billId}/staffComments/{commentId}": {
+      "schema": { "$ref": "#/entities/BillStaffComment" },
+      "description": "Internal staff comments on a bill"
+    }
+  }
+}
