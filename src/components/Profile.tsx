@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useStore, Transaction, TransactionType } from '../store';
+import { useStore, Transaction, TransactionType, UserRole } from '../store';
 import { 
   History, Wallet, Receipt, Star, AlertTriangle, 
   CheckCircle2, Plus, ArrowUpRight, ArrowDownRight, 
-  ThumbsUp, Ban, ShieldAlert, ShieldCheck,
+  ThumbsUp, Ban, ShieldAlert, ShieldCheck, Clock,
   UserCog, Lock, Key, RefreshCw
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -11,8 +11,8 @@ import { motion } from 'motion/react';
 export default function Profile() {
   const { 
     currentUser, users, transactions, addTransaction, 
-    finalizeTransaction, requestForgiveness, issueWarning, postAnnouncement,
-    activityLogs, calculateDebt, userWarnings, debts,
+    issueWarning, postAnnouncement,
+    activityLogs, calculateDebt, userWarnings, debts, requestRole,
     updateUsername, updatePassword
   } = useStore();
 
@@ -20,23 +20,22 @@ export default function Profile() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'info' | 'security'>('info');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'info' | 'security' | 'role'>('info');
+  const [targetRole, setTargetRole] = useState<UserRole | ''>('');
 
   useEffect(() => {
     if (currentUser) setNewUsername(currentUser.username);
   }, [currentUser?.username]);
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [workName, setWorkName] = useState('');
   const [pages, setPages] = useState(1);
-  const [targetBorrowerId, setTargetBorrowerId] = useState('');
-  const [txType, setTxType] = useState<TransactionType>('lend');
+  const [targetAskerId, setTargetAskerId] = useState('');
   const [isCommunityServiceTx, setIsCommunityServiceTx] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [ratingInput, setRatingInput] = useState<{ txId: string, value: number } | null>(null);
 
-  // Derive People in Debt and People I Owe from the ledger
+  // Derive People in Debt and People I Owe from the global state/ledgers
   const peopleWhoOweMe = debts.filter(d => {
     if (d.user1Id === currentUser?.id) return d.netBalance > 0;
     if (d.user2Id === currentUser?.id) return d.netBalance < 0;
@@ -62,31 +61,44 @@ export default function Profile() {
   const totalOwedByMe = peopleIOwe.reduce((acc, curr) => acc + curr.balance, 0);
   const totalOwedToMe = peopleWhoOweMe.reduce((acc, curr) => acc + curr.balance, 0);
 
-  const myDebtsTransactions = transactions
-    .filter(t => !t.isForgiven && (t.status === 'completed' || t.status === 'approved' || t.status === 'pending') && (t.receiverId === currentUser?.id || t.senderId === currentUser?.id))
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const myTransactions = transactions
+    .filter(t => (t.askerId === currentUser?.id || t.senderId === currentUser?.id))
+    .sort((a, b) => {
+       const dateA = a.createdAt?.toDate?.() || a.createdAt || 0;
+       const dateB = b.createdAt?.toDate?.() || b.createdAt || 0;
+       return new Date(dateB).getTime() - new Date(dateA).getTime();
+    });
 
-  const pendingActions = transactions.filter(t => 
-    (t.type === 'lend' ? t.receiverId === currentUser?.id : t.senderId === currentUser?.id) && t.status === 'approved'
+  // Rating requests for me as Asker (Borrower)
+  const pendingRatings = transactions.filter(t => 
+    t.askerId === currentUser?.id && t.status === 'approved'
   );
 
   const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetBorrowerId || isSubmitting) return;
+    if (!targetAskerId || isSubmitting) return;
     
     setIsSubmitting(true);
     try {
-      await addTransaction(targetBorrowerId, workName, pages, txType, isCommunityServiceTx);
+      await addTransaction(targetAskerId, pages, isCommunityServiceTx);
       setShowAddModal(false);
-      setWorkName('');
       setPages(1);
-      setTargetBorrowerId('');
-      setTxType('lend');
+      setTargetAskerId('');
       setIsCommunityServiceTx(false);
     } catch (err) {
       console.error("Submission UI Error:", err);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleForgiveness = async (borrowerId: string) => {
+    const amount = prompt("Enter amount to forgive:");
+    if (!amount) return;
+    const num = parseInt(amount);
+    if (!isNaN(num) && num > 0) {
+      await useStore.getState().forgiveDebt(borrowerId, num);
+      alert(`RESOLVED: ${num} debt forgiven.`);
     }
   };
 
@@ -225,6 +237,15 @@ export default function Profile() {
                    Security
                  </span>
                </button>
+               <button 
+                 onClick={() => setActiveSettingsTab('role')}
+                 className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${activeSettingsTab === 'role' ? 'bg-neutral-800 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}
+               >
+                 <span className="flex items-center justify-center gap-2">
+                   <ShieldCheck size={14} />
+                   Authority
+                 </span>
+               </button>
             </div>
             
             <div className="p-8">
@@ -249,7 +270,7 @@ export default function Profile() {
                       {isUpdatingProfile ? "Processing..." : "Update Identity"}
                     </button>
                  </form>
-               ) : (
+               ) : activeSettingsTab === 'security' ? (
                  <form onSubmit={handlePasswordUpdate} className="space-y-6">
                     <div className="space-y-4">
                       <div>
@@ -287,6 +308,60 @@ export default function Profile() {
                       {isUpdatingProfile ? "Rotatings Keys..." : "Rotate Secret Key"}
                     </button>
                  </form>
+               ) : (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="p-6 bg-blue-600/5 border border-blue-600/10 rounded-2xl relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-4 opacity-10">
+                        <ShieldCheck size={48} />
+                      </div>
+                      <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-2">Authority Status</p>
+                      <p className="text-sm font-bold text-neutral-200 uppercase tracking-tighter">
+                        Current Rank: <span className="text-blue-400">{currentUser?.role}</span>
+                      </p>
+                      {currentUser?.requestedRole && (
+                        <div className="mt-4 flex items-center gap-2 text-orange-500">
+                          <Clock size={12} className="animate-spin" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">
+                            Validation Pending: {currentUser.requestedRole}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-4">
+                      <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">Apply for Authority Level</label>
+                      <div className="grid grid-cols-2 gap-3">
+                         {(['monitor', 'admin'] as const).map((r) => (
+                           <button
+                             key={r}
+                             type="button"
+                             onClick={() => setTargetRole(r)}
+                             className={`py-4 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                               targetRole === r 
+                                 ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/20' 
+                                 : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:border-neutral-700'
+                             }`}
+                           >
+                             {r}
+                           </button>
+                         ))}
+                      </div>
+                      <p className="text-[9px] text-neutral-600 italic">Administrators will manually verify your profile history and integrity scores before granting access.</p>
+                    </div>
+
+                    <button 
+                      onClick={async () => {
+                        if (targetRole) {
+                           await requestRole(targetRole);
+                           alert("APPLICATION SUBMITTED: Your request is now in the validation queue.");
+                        }
+                      }}
+                      disabled={!targetRole || currentUser?.requestedRole === targetRole || currentUser?.role === targetRole}
+                      className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-600 disabled:border-neutral-700 disabled:opacity-50 text-white text-[10px] font-black py-4 rounded-xl uppercase tracking-widest transition-all border border-blue-500 shadow-lg shadow-blue-600/20"
+                    >
+                      {currentUser?.requestedRole ? "Update Request" : "Submit Access Request"}
+                    </button>
+                  </div>
                )}
             </div>
           </section>
@@ -306,54 +381,51 @@ export default function Profile() {
               </button>
             </div>
 
-            {/* Pending actions for Asker */}
-            {pendingActions.length > 0 && (
+            {/* Pending actions for Asker (Rating Prompt) */}
+            {pendingRatings.length > 0 && (
               <div className="mb-8 space-y-4">
                 <h3 className="text-xs font-bold text-orange-500 uppercase tracking-widest flex items-center gap-2">
                   <AlertTriangle size={14} />
-                  Compulsory Actions Required
+                  Pending Work Ratings
                 </h3>
-                {pendingActions.map(tx => (
+                {pendingRatings.map(tx => (
                   <div key={tx.id} className="bg-orange-500/5 border border-orange-500/10 p-5 rounded-2xl">
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-bold text-neutral-100">{tx.workName}</p>
+                          <p className="text-sm font-bold text-neutral-100">
+                            {users.find(u => u.id === tx.senderId)?.username} lended you work
+                          </p>
                           {tx.isCommunityService && (
                             <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">CS</span>
                           )}
                         </div>
-                        <p className="text-[10px] text-neutral-500">From: {users.find(u => u.id === tx.senderId)?.username}</p>
+                        <p className="text-[10px] text-neutral-500">Wait for your feedback...</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-lg font-black italic text-orange-500">{tx.isCommunityService ? '0 (CS)' : tx.amount} DEBT</p>
+                        <p className="text-lg font-black italic text-orange-500">{tx.isCommunityService ? '0 (CS)' : tx.debt} DEBT</p>
                         <p className="text-[10px] text-neutral-500">{tx.pages} pages</p>
                       </div>
                     </div>
                     
-                    {ratingInput?.txId === tx.id ? (
-                      <div className="flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2">
-                         <div className="flex gap-1">
-                           {[1,2,3,4,5].map(v => (
-                             <button 
-                                key={v} 
-                                onClick={() => finalizeTransaction(tx.id, v)}
-                                className="p-1 hover:text-yellow-500 text-neutral-600 transition-colors"
-                             >
-                               <Star size={24} fill={v <= (ratingInput.value || 0) ? "currentColor" : "none"} />
-                             </button>
-                           ))}
-                         </div>
-                         <button onClick={() => setRatingInput(null)} className="text-[10px] text-neutral-500 underline uppercase font-bold tracking-widest">Cancel</button>
-                      </div>
-                    ) : (
-                      <button 
-                        onClick={() => setRatingInput({ txId: tx.id, value: 0 })}
-                        className="w-full bg-orange-500 hover:bg-orange-400 text-black text-xs font-black py-3 rounded-xl transition-all uppercase tracking-widest"
-                      >
-                        Approve & Rate Transaction
-                      </button>
-                    )}
+                    <div className="flex flex-col gap-2">
+                       <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest text-center">Rate out of 5</p>
+                       <div className="flex items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-2">
+                          <div className="flex gap-2">
+                            {[1,2,3,4,5].map(v => (
+                              <button 
+                                 key={v} 
+                                 onClick={async () => {
+                                    await useStore.getState().submitRating(tx.id, v);
+                                 }}
+                                 className="p-1 hover:text-yellow-500 text-neutral-600 transition-colors"
+                              >
+                                <Star size={28} fill="currentColor" strokeWidth={1} />
+                              </button>
+                            ))}
+                          </div>
+                       </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -364,7 +436,7 @@ export default function Profile() {
                    <h3 className="text-sm font-bold opacity-60 uppercase tracking-widest">Recent Activity</h3>
                 </div>
                 <div className="divide-y divide-neutral-800">
-                   {myDebtsTransactions.slice(0, 5).map(tx => (
+                   {myTransactions.slice(0, 10).map(tx => (
                     <div key={tx.id} className="p-6 flex items-center justify-between hover:bg-neutral-800/30 transition-colors">
                       <div className="flex items-center gap-4">
                         <div className="p-2 bg-neutral-950 rounded-xl">
@@ -372,12 +444,11 @@ export default function Profile() {
                         </div>
                         <div>
                           <p className="text-sm font-bold text-neutral-200">
-                            {tx.workName}
+                            Transfer of {tx.pages} pages
                             {tx.isCommunityService && <span className="ml-2 text-[8px] text-blue-500 font-bold border border-blue-500/30 px-1 rounded">CS</span>}
                           </p>
                           <p className="text-[10px] text-neutral-500">
-                             Opponent: {users.find(u => u.id === (tx.senderId === currentUser?.id ? tx.receiverId : tx.senderId))?.username} 
-                             {tx.isForgiven && <span className="ml-2 text-green-500 uppercase font-bold">[Forgiven]</span>}
+                             {tx.senderId === currentUser?.id ? `Lended work to @${users.find(u => u.id === tx.askerId)?.username}` : `Received work from @${users.find(u => u.id === tx.senderId)?.username}`}
                              <span className={`ml-2 uppercase font-black px-1 rounded text-[8px] ${
                                 tx.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
                                 tx.status === 'approved' ? 'bg-blue-500/10 text-blue-500' :
@@ -387,7 +458,7 @@ export default function Profile() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-black italic text-neutral-200">{tx.type === 'lend' ? (tx.senderId === currentUser?.id ? '+' : '-') : (tx.senderId === currentUser?.id ? '-' : '+')}{tx.isCommunityService ? 0 : tx.amount} DB</p>
+                        <p className="text-sm font-black italic text-neutral-200">{tx.senderId === currentUser?.id ? '+' : '-'}{tx.isCommunityService ? 0 : tx.debt} DB</p>
                         {tx.status === 'completed' && (
                           <div className="flex items-center gap-1 justify-end text-[10px] text-yellow-500 font-bold">
                              <Star size={10} fill="currentColor" /> {tx.rating}
@@ -396,9 +467,9 @@ export default function Profile() {
                       </div>
                     </div>
                   ))}
-                  {myDebtsTransactions.length === 0 && (
+                   {myTransactions.length === 0 && (
                     <div className="p-10 text-center text-neutral-600 text-sm italic">
-                      No debts recorded yet.
+                      No activity recorded yet.
                     </div>
                   )}
                 </div>
@@ -453,21 +524,21 @@ export default function Profile() {
                </div>
             </section>
 
-            {/* Forgiveness Section */}
+            {/* Forgiveness Area */}
             <section>
                <h2 className="text-md font-bold uppercase tracking-widest text-neutral-500 mb-6 flex items-center gap-2">
                   <ThumbsUp size={16} />
-                  Forgiveness Request
+                  Forgiveness Area
                </h2>
                <div className="space-y-4">
-                {transactions.filter(t => t.senderId === currentUser?.id && t.status === 'completed' && !t.isForgiven).slice(0, 3).map(tx => (
+                {transactions.filter(t => t.senderId === currentUser?.id && t.status === 'completed').slice(0, 3).map(tx => (
                   <div key={tx.id} className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl flex items-center justify-between group">
                     <div>
-                      <p className="text-sm font-bold text-neutral-200">{users.find(u => u.id === tx.receiverId)?.username} owes you {tx.amount} DB</p>
-                      <p className="text-[10px] text-neutral-500 italic mt-0.5">For "{tx.workName}"</p>
+                      <p className="text-sm font-bold text-neutral-200">{users.find(u => u.id === tx.askerId)?.username} repaid you {tx.debt} DB</p>
+                      <p className="text-[10px] text-neutral-500 italic mt-0.5">Recorded on {tx.createdAt?.toDate?.()?.toLocaleDateString() || new Date(tx.createdAt).toLocaleDateString()}</p>
                     </div>
                      <button 
-                       onClick={() => requestForgiveness(tx.id)}
+                       onClick={() => {}}
                        className="p-2 text-neutral-600 hover:text-green-500 hover:bg-green-500/10 rounded-lg transition-all"
                        title="Request Forgiveness"
                      >
@@ -475,7 +546,7 @@ export default function Profile() {
                      </button>
                  </div>
                  ))}
-                 {transactions.filter(t => t.senderId === currentUser?.id && t.status === 'completed' && !t.isForgiven).length === 0 && (
+                 {transactions.filter(t => t.senderId === currentUser?.id && t.status === 'completed').length === 0 && (
                    <div className="bg-neutral-900/50 border border-neutral-800 border-dashed p-6 rounded-2xl text-center text-neutral-600 text-xs">
                       No debtors to forgive currently.
                    </div>
@@ -515,26 +586,26 @@ export default function Profile() {
            </section>
 
            {/* Role specifics */}
-           {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR' || currentUser?.role === 'ADD_ADMIN') && (
+           {(currentUser?.role === 'admin' || currentUser?.role === 'monitor' || currentUser?.role === 'add_admin') && (
              <section className="bg-blue-600/5 border border-blue-600/10 p-8 rounded-3xl">
                 <h2 className="text-blue-500 text-[10px] font-black uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
                    <ShieldCheck size={14} />
                    Administrative Access
                 </h2>
                 <div className="grid gap-3">
-                    {(currentUser.role === 'ADMIN' || currentUser.role === 'ADD_ADMIN' || currentUser.role === 'MONITOR') && (
+                    {(currentUser.role === 'admin' || currentUser.role === 'add_admin' || currentUser.role === 'monitor') && (
                       <button 
                          onClick={() => {
                            const title = prompt("Announcement Title:");
                            const content = prompt("Announcement Content:");
                            if (title && content) {
-                             const section = (currentUser.role === 'MONITOR' ? 'MONITORING' : 'GLOBAL');
+                             const section = (currentUser.role === 'monitor' ? 'MONITORING' : 'GLOBAL');
                              postAnnouncement(title, content, section);
                            }
                          }}
                          className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 text-xs font-bold uppercase tracking-widest transition-all"
                        >
-                         Push {currentUser.role === 'MONITOR' ? 'Monitor' : 'System'} Announcement
+                         Push {currentUser.role === 'monitor' ? 'Monitor' : 'System'} Announcement
                       </button>
                     )}
                    <button 
@@ -567,33 +638,6 @@ export default function Profile() {
             <div className="p-8">
                <h3 className="text-xl font-bold mb-6 italic">Record New Transaction</h3>
                <form onSubmit={handleAddTransaction} className="space-y-4">
-                 <div>
-                    <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2">Transaction Spirit</label>
-                    <div className="grid grid-cols-2 gap-3">
-                       <button
-                         type="button"
-                         onClick={() => setTxType('lend')}
-                         className={`py-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                           txType === 'lend' 
-                             ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/20' 
-                             : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:border-neutral-700'
-                         }`}
-                       >
-                         Lend Work
-                       </button>
-                       <button
-                         type="button"
-                         onClick={() => setTxType('pay')}
-                         className={`py-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                           txType === 'pay' 
-                             ? 'bg-green-600 border-green-500 text-white shadow-lg shadow-green-600/20' 
-                             : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:border-neutral-700'
-                         }`}
-                       >
-                         Debt Payment
-                       </button>
-                    </div>
-                 </div>
                  <div className="flex items-center gap-3 p-4 bg-neutral-950 border border-neutral-800 rounded-2xl mb-4">
                     <input 
                       type="checkbox" 
@@ -605,10 +649,10 @@ export default function Profile() {
                     <label htmlFor="cs-check" className="text-xs font-bold text-blue-500 uppercase tracking-widest cursor-pointer">Community Service Transaction</label>
                  </div>
                  <div>
-                    <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">Borrower (Receiver)</label>
+                    <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">Asked By (Borrower)</label>
                     <select 
-                      value={targetBorrowerId}
-                      onChange={(e) => setTargetBorrowerId(e.target.value)}
+                      value={targetAskerId}
+                      onChange={(e) => setTargetAskerId(e.target.value)}
                       className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm"
                       required
                     >
@@ -619,30 +663,19 @@ export default function Profile() {
                     </select>
                  </div>
                  <div>
-                    <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">Work Name / Description</label>
-                    <input 
-                      type="text" 
-                      value={workName}
-                      onChange={(e) => setWorkName(e.target.value)}
-                      placeholder="e.g. Physics Assignment Part 1"
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm"
-                      required
-                    />
-                 </div>
-                 <div>
                     <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">Number of Pages</label>
                     <input 
                       type="number" 
                       min={1}
                       value={pages}
                       onChange={(e) => setPages(parseInt(e.target.value))}
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm font-mono"
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm font-mono text-center"
                       required
                     />
                  </div>
                  <div className="p-4 bg-blue-600/5 border border-blue-600/10 rounded-xl mb-4 text-center">
                     <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1">Calculated Debt Value</p>
-                    <p className="text-2xl font-black italic">{calculateDebt(pages)} DB</p>
+                    <p className="text-3xl font-black italic"> {calculateDebt(pages)} DB</p>
                  </div>
 
                  <div className="flex gap-3 pt-4">
@@ -655,7 +688,7 @@ export default function Profile() {
                     </button>
                     <button 
                       type="submit"
-                      disabled={!targetBorrowerId || !workName || !pages || isSubmitting}
+                      disabled={!targetAskerId || !pages || isSubmitting}
                       className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-3 rounded-xl transition-all text-sm uppercase shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
                     >
                       {isSubmitting ? (
@@ -664,7 +697,7 @@ export default function Profile() {
                           Processing...
                         </>
                       ) : (
-                        <>Record Transfer</>
+                        <>Record Transaction</>
                       )}
                     </button>
                  </div>

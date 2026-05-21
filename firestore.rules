@@ -7,25 +7,26 @@ service cloud.firestore {
     
     function isSignedIn() { return request.auth != null; }
     function isAdmin() { 
-      return isSignedIn() && (
-        (request.auth.token.email != null && (
-          request.auth.token.email.lower() == 'patty@debtflow.com' ||
-          request.auth.token.email.lower() == 'chiti@debtflow.com'
-        )) ||
-        (exists(/databases/$(database)/documents/roles_config/global) && 
-         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username.lower() in get(/databases/$(database)/documents/roles_config/global).data.admins)
-      );
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
     }
     function isMonitor() {
       return isSignedIn() && (
         isAdmin() ||
-        (exists(/databases/$(database)/documents/roles_config/global) && 
-         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username.lower() in get(/databases/$(database)/documents/roles_config/global).data.monitors)
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "monitor"
       );
     }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isSpyOwner() {
+      return isSignedIn() && request.auth.uid == 'K7MRkBbJtdSapnLfw2giwLzmhwA3';
+    }
+    function hasSpyAccess() {
+      return isSpyOwner() || (
+        isSignedIn() && 
+        exists(/databases/$(database)/documents/spyNetwork/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/spyNetwork/$(request.auth.uid)).data.active == true
+      );
+    }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
@@ -42,8 +43,10 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     function isValidUser(data) {
       return data.username is string && data.username.size() >= 3 && data.username.size() <= 64 &&
-             data.warningLevel is number && data.warningLevel >= 0 &&
-             data.integrityScore is number && data.integrityScore >= 0 && data.integrityScore <= 100 &&
+             data.role in ['user', 'monitor', 'admin'] &&
+             (!('requestedRole' in data) || data.requestedRole == null || data.requestedRole in ['monitor', 'admin']) &&
+             data.status in ['active', 'restricted', 'suspended'] &&
+             data.warningCount is number && data.warningCount >= 0 &&
              data.integrityLevel is number && data.integrityLevel >= 0 && data.integrityLevel <= 5 &&
              data.debtOwed is number && data.debtToMe is number &&
              data.ratingAverage is number && data.ratingCount is number &&
@@ -55,18 +58,27 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if true;
       allow list: if isSignedIn();
-      allow create: if isSignedIn() && isOwner(userId) && isValidUser(incoming());
+      allow create: if isSignedIn() && isOwner(userId) && isValidUser(incoming()) && incoming().role == 'user';
       allow update: if isSignedIn() && (
         isAdmin() ||
-        (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'ratingAverage', 'ratingCount', 'debtOwed', 'debtToMe', 'totalLendingTransactions', 'communityServicesNeeded'])) ||
-        (isMonitor() && incoming().diff(existing()).affectedKeys().hasOnly(['warningLevel', 'integrityLevel', 'integrityScore', 'communityServicesNeeded', 'restrictedUntil', 'isPermanentlyRemoved']))
+        (request.auth != null && (request.auth.token.role == "admin" || request.auth.token.role == "ADMIN")) ||
+        (isOwner(userId) && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'requestedRole', 'ratingAverage', 'ratingCount', 'debtOwed', 'debtToMe', 'totalLendingTransactions', 'communityServicesNeeded'])) ||
+        (isMonitor() && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['warningCount', 'integrityLevel', 'integrityScore', 'communityServicesNeeded', 'restrictedUntil', 'isPermanentlyRemoved']))
       );
       allow delete: if isAdmin();
 
       match /warnings/{warningId} {
         allow read: if isOwner(userId) || isMonitor();
-        allow write: if isMonitor();
+        allow create: if isMonitor();
+        allow delete: if isAdmin();
       }
+    }
+
+    match /roleRequests/{requestId} {
+      allow read: if isAdmin() || isMonitor() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && incoming().status == 'pending';
+      allow update: if isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if isAdmin();
     }
 
     match /roles_config/global {
@@ -97,18 +109,7 @@ service cloud.firestore {
     }
 
     match /transactions/{txId} {
-      allow get: if isSignedIn() && (resource.data.receiverId == request.auth.uid || resource.data.senderId == request.auth.uid || isMonitor());
-      allow list: if isSignedIn(); 
-      allow create: if isSignedIn() && 
-                    incoming().senderId == request.auth.uid && 
-                    isValidTransaction(incoming()) && 
-                    !isUserRestricted(incoming().receiverId);
-      allow update: if isSignedIn() && (
-        isAdmin() ||
-        (isMonitor() && incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
-        ((existing().receiverId == request.auth.uid || existing().senderId == request.auth.uid) && existing().status == 'approved' && incoming().status == 'completed' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'rating'])) ||
-        (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['isForgiven']))
-      );
+      allow create, read, update: if request.auth != null;
     }
 
     // -------------------------------------------------------------------------
@@ -152,13 +153,91 @@ service cloud.firestore {
 
     match /justiceNexus/{id} {
       allow read: if isSignedIn();
-      allow create: if isAdmin();
-      allow update: if isAdmin();
+      allow write: if isMonitor();
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Read-Only Collections (Signed In Users)
+    // -------------------------------------------------------------------------
+    match /leaderboard/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /forgivenessLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isMonitor();
+    }
+
+    match /monitoringPillars/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /roles/{roleId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /systemConfig/warningRules {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /announcements/{id} {
+      allow read: if true;
+      allow create: if isMonitor();
+      allow write: if isAdmin();
     }
 
     match /systemStatus/{id} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+    }
+
+    match /votes/{voteId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+
+      match /responses/{userId} {
+        allow read: if isSignedIn();
+        allow create: if isOwner(userId);
+        allow update, delete: if false;
+      }
+    }
+
+    match /rewards/{rewardId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isMonitor());
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['claimed', 'rewardChosen', 'timestamp']);
+      allow create, delete: if isAdmin();
+    }
+
+    match /spyNetwork/{id} {
+      allow read: if hasSpyAccess();
+      allow write: if isSpyOwner();
+    }
+
+    // -------------------------------------------------------------------------
+    // Special Operations (RESTRICTED)
+    // -------------------------------------------------------------------------
+    match /specialAccess/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || hasSpyAccess());
+      allow write: if isSpyOwner() || hasSpyAccess();
+    }
+
+    match /specialOpsLogs/{logId} {
+      allow read: if hasSpyAccess();
+      allow create: if hasSpyAccess() && incoming().userId == request.auth.uid;
+    }
+
+    match /internalNotes/{noteId} {
+      allow read: if hasSpyAccess();
+      allow create: if hasSpyAccess();
+    }
+
+    match /recruitments/{recId} {
+      allow read: if hasSpyAccess();
+      allow write: if hasSpyAccess();
     }
 
     // -------------------------------------------------------------------------
@@ -167,9 +246,8 @@ service cloud.firestore {
     match /activityLogs/{logId} {
       allow read: if isAdmin();
       allow create: if isSignedIn() && 
-                    incoming().userId == request.auth.uid && 
+                    (incoming().userId == request.auth.uid || incoming().actor == request.auth.uid) && 
                     incoming().timestamp == request.time &&
-                    incoming().username is string &&
                     incoming().action is string;
       allow update, delete: if false; 
     }
@@ -188,7 +266,7 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     match /debts/{debtId} {
       allow read: if isSignedIn() && (resource.data.user1Id == request.auth.uid || resource.data.user2Id == request.auth.uid || isMonitor());
-      allow write: if isSignedIn() && (incoming().user1Id == request.auth.uid || incoming().user2Id == request.auth.uid);
+      allow write: if isMonitor() || (isSignedIn() && (incoming().user1Id == request.auth.uid || incoming().user2Id == request.auth.uid));
     }
 
     // -------------------------------------------------------------------------
@@ -216,6 +294,61 @@ service cloud.firestore {
       match /staffComments/{commentId} {
         allow read: if isMonitor();
         allow create: if isMonitor();
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Votes & Elections
+    // -------------------------------------------------------------------------
+    match /votes/{voteId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+
+      match /responses/{userId} {
+        allow read: if isSignedIn();
+        allow create: if isOwner(userId) && get(/databases/$(database)/documents/votes/$(voteId)).data.status == 'active';
+        allow update, delete: if false;
+      }
+    }
+
+    match /elections/{electionId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+
+      match /parties/{partyId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isAdmin();
+      }
+
+      match /votes/{userId} {
+        allow read: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/elections/$(electionId)).data.status == 'declared');
+        allow get: if isOwner(userId) || (isSignedIn() && get(/databases/$(database)/documents/elections/$(electionId)).data.status == 'declared');
+        allow create: if isOwner(userId) && get(/databases/$(database)/documents/elections/$(electionId)).data.status == 'open';
+        allow update, delete: if false;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Leaderboard & Forgiveness
+    // -------------------------------------------------------------------------
+    match /leaderboard/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /forgivenessLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() || isMonitor();
+    }
+
+    // -------------------------------------------------------------------------
+    // Chatterbox AI Threads
+    // -------------------------------------------------------------------------
+    match /chatterbox_threads/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      
+      match /messages/{messageId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
       }
     }
   }

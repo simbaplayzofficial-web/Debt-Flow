@@ -1,0 +1,3 @@
+73:  const pendingRatings = transactions.filter(t => 
+534:                {transactions.filter(t => t.senderId === currentUser?.id && t.status === 'completed' && !t.isForgiven).slice(0, 3).map(tx => (
+549:                 {transactions.filter(t => t.senderId === currentUser?.id && t.status === 'completed' && !t.isForgiven).length === 0 && (

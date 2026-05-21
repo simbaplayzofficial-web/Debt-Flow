@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useStore } from './store';
 import { 
   LayoutDashboard, User as UserIcon, Users, Settings, 
-  LogOut, Bell, Menu, X, ChevronRight, ShieldCheck, Database
+  LogOut, Bell, Menu, X, ChevronRight, ShieldCheck, Database, Gavel,
+  EyeOff, MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -12,9 +13,13 @@ import Profile from './components/Profile';
 import Groups from './components/Groups';
 import Login from './components/Login';
 import MasterDataPanel from './components/MasterDataPanel';
-import CommandPanel from './components/CommandPanel';
+import Representatives from './components/Representatives';
+import SpecialOps from './components/SpecialOps';
+import { MonitorWorkspace } from './components/MonitorWorkspace';
+import Chatterbox from './components/Chatterbox';
+import ControlPanel from './components/ControlPanel';
 
-function SidebarItem({ icon: Icon, label, active, onClick }: { icon: any, label: string, active: boolean, onClick: () => void }) {
+function SidebarItem({ icon: Icon, label, active, onClick, className = '' }: { icon: any, label: string, active: boolean, onClick: () => void, className?: string }) {
   return (
     <button
       onClick={onClick}
@@ -22,7 +27,7 @@ function SidebarItem({ icon: Icon, label, active, onClick }: { icon: any, label:
         active 
           ? 'bg-blue-600/10 text-blue-400 font-medium' 
           : 'text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200'
-      }`}
+      } ${className}`}
     >
       <Icon size={20} className={active ? 'text-blue-500' : ''} />
       <span className="flex-1 text-left">{label}</span>
@@ -32,9 +37,37 @@ function SidebarItem({ icon: Icon, label, active, onClick }: { icon: any, label:
 }
 
 export default function App() {
-  const { currentUser, logout, isLoading } = useStore();
+  const { currentUser, logout, isLoading, hasSpecialAccess } = useStore();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Role-based Access Enforcement
+  React.useEffect(() => {
+    if (!currentUser) return;
+    
+    const accessMap: Record<string, boolean> = {
+      dashboard: true,
+      profile: true,
+      groups: true,
+      chatterbox: true,
+      representatives: true,
+      specialops: hasSpecialAccess,
+      monitor: currentUser.role === 'admin' || currentUser.role === 'monitor',
+      master: currentUser.role === 'admin',
+      control: currentUser.role === 'admin'
+    };
+
+    if (!accessMap[activeTab]) {
+      setActiveTab('dashboard');
+    }
+  }, [currentUser, activeTab, hasSpecialAccess]);
+
+  // DEBUG LOG (Requested)
+  React.useEffect(() => {
+    if (currentUser) {
+      console.log("Current Role (UI State):", currentUser.role);
+    }
+  }, [currentUser]);
 
   if (isLoading) {
     return (
@@ -54,7 +87,11 @@ export default function App() {
       case 'profile': return <Profile />;
       case 'groups': return <Groups />;
       case 'master': return <MasterDataPanel />;
-      case 'command': return <CommandPanel />;
+      case 'representatives': return <Representatives />;
+      case 'specialops': return <SpecialOps />;
+      case 'monitor': return <MonitorWorkspace />;
+      case 'chatterbox': return <Chatterbox />;
+      case 'control': return <ControlPanel />;
       default: return <Dashboard />;
     }
   };
@@ -111,15 +148,47 @@ export default function App() {
             active={activeTab === 'groups'} 
             onClick={() => { setActiveTab('groups'); setIsSidebarOpen(false); }} 
           />
-          {(currentUser.role === 'ADMIN' || currentUser.role === 'MONITOR') && (
+          <SidebarItem 
+            icon={MessageCircle} 
+            label="Chatterbox" 
+            active={activeTab === 'chatterbox'} 
+            onClick={() => { setActiveTab('chatterbox'); setIsSidebarOpen(false); }} 
+            className="text-amber-400 border-amber-500/10 hover:bg-amber-500/10"
+          />
+          <SidebarItem 
+            icon={UserIcon} 
+            label="Representatives" 
+            active={activeTab === 'representatives'} 
+            onClick={() => { setActiveTab('representatives'); setIsSidebarOpen(false); }} 
+          />
+          {hasSpecialAccess && (
             <SidebarItem 
-              icon={ShieldCheck} 
-              label="Command Panel" 
-              active={activeTab === 'command'} 
-              onClick={() => { setActiveTab('command'); setIsSidebarOpen(false); }} 
+              icon={EyeOff} 
+              label="Special Ops" 
+              active={activeTab === 'specialops'} 
+              onClick={() => { setActiveTab('specialops'); setIsSidebarOpen(false); }} 
+              className="bg-red-500/5 text-red-500/80 border-red-500/10 hover:bg-red-500/10"
             />
           )}
-          {currentUser.role === 'ADMIN' && (
+          {(currentUser.role === 'admin' || currentUser.role === 'monitor') && (
+            <SidebarItem 
+              icon={ShieldCheck} 
+              label="Monitor Workspace" 
+              active={activeTab === 'monitor'} 
+              onClick={() => { setActiveTab('monitor'); setIsSidebarOpen(false); }} 
+              className="bg-blue-500/5 text-blue-400 border-blue-500/10 hover:bg-blue-500/10"
+            />
+          )}
+          {currentUser.role === 'admin' && (
+            <SidebarItem 
+              icon={Settings} 
+              label="Control Panel" 
+              active={activeTab === 'control'} 
+              onClick={() => { setActiveTab('control'); setIsSidebarOpen(false); }} 
+              className="bg-purple-500/5 text-purple-400 border-purple-500/10 hover:bg-purple-500/10"
+            />
+          )}
+          {currentUser.role === 'admin' && (
             <SidebarItem 
               icon={Database} 
               label="Master Data" 
@@ -138,7 +207,7 @@ export default function App() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate">{currentUser.username}</p>
                 <div className="flex items-center gap-1 text-[10px] text-neutral-500 uppercase tracking-widest font-bold">
-                  {currentUser.role !== 'USER' && <ShieldCheck size={10} className="text-blue-500" />}
+                  {currentUser.role !== 'user' && <ShieldCheck size={10} className="text-blue-500" />}
                   {currentUser.role.replace('_', ' ')}
                 </div>
               </div>

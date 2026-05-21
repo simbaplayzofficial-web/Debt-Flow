@@ -2,24 +2,26 @@ import React from 'react';
 import { useStore, AnnouncementSection } from '../store';
 import { 
   Megaphone, Award, Star, TrendingUp, ShieldAlert, 
-  Clock, ShieldCheck, Trash2, X, Send, Scale
+  Clock, ShieldCheck, Trash2, X, Send, Scale, Heart, 
+  Gift, CheckCircle2, ChevronRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function Dashboard() {
   const { 
-    announcements, users, currentUser, 
-    transactions, complaints, rolesConfig, debtAdjustments,
-    approveTransaction, rejectTransaction, reviewComplaint, updateRolesConfig, resolveForgiveness,
+    announcements, users, currentUser, rewards, currentLeaderboard,
+    transactions, complaints, rolesConfig, debtAdjustments, roleRequests,
+    approveTransaction, rejectTransaction, reviewComplaint, updateRolesConfig,
+    resolveRoleRequest,
     activityLogs, postAnnouncement, deleteAnnouncement, issueWarning,
-    createResolvingCase, systemStatus, updateSystemStatus
+    createResolvingCase, systemStatus, updateSystemStatus, claimReward
   } = useStore();
 
   const [showAnnounceModal, setShowAnnounceModal] = React.useState(false);
   const [annForm, setAnnForm] = React.useState({ 
     title: '', 
     content: '', 
-    section: (currentUser?.role === 'MONITOR' ? 'MONITORING' : 'GLOBAL') as AnnouncementSection 
+    section: (currentUser?.role === 'monitor' ? 'MONITORING' : 'GLOBAL') as AnnouncementSection 
   });
 
   // Logic for rankings
@@ -30,14 +32,25 @@ export default function Dashboard() {
     return new Date(ann.expiresAt).getTime() > Date.now();
   });
   
-  const senderOfMonth = [...validUsers].sort((a, b) => (b.totalLendingTransactions || 0) - (a.totalLendingTransactions || 0))[0];
-  const bestSender = [...validUsers]
-    .filter(u => (u.ratingCount || 0) > 0)
-    .sort((a, b) => (b.ratingAverage || 0) - (a.ratingAverage || 0))[0];
+  const lbCarer = currentLeaderboard?.communityCarer;
+  const communityCarerName = lbCarer?.username || 'None';
+  const communityCarerContribution = lbCarer?.totalContribution || 0;
+
+  const lbSenderOfMonth = currentLeaderboard?.senderOfTheMonth;
+  const senderOfMonthName = lbSenderOfMonth?.username || 'None';
+  const senderOfMonthDebts = lbSenderOfMonth?.totalDebts || 0;
+
+  const lbBestSender = currentLeaderboard?.bestSender;
+  const bestSenderName = lbBestSender?.username || 'None';
+  const bestSenderRating = lbBestSender?.averageRating || 0;
+
+  const myClaimableRewards = rewards.filter(r => r.userId === currentUser?.id && !r.claimed);
+
+  const [rewardChoiceModal, setRewardChoiceModal] = React.useState<string | null>(null);
 
   // 1. Global Efficiency Calculation
   const last7DaysTransactions = transactions.filter(t => {
-    const txTime = new Date(t.timestamp).getTime();
+    const txTime = new Date(t.createdAt?.toDate?.() || t.createdAt).getTime();
     const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
     return txTime > sevenDaysAgo && t.status === 'completed';
   });
@@ -76,7 +89,7 @@ export default function Dashboard() {
             </div>
             <h2 className="text-xl font-bold italic">Announcements</h2>
           </div>
-          {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR' || currentUser?.role === 'ADD_ADMIN') && (
+          {(currentUser?.role === 'admin' || currentUser?.role === 'monitor' || currentUser?.role === 'add_admin') && (
             <button 
               onClick={() => setShowAnnounceModal(true)}
               className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black py-2 px-4 rounded-xl shadow-lg shadow-blue-500/20 uppercase tracking-widest transition-all active:scale-95"
@@ -114,7 +127,7 @@ export default function Dashboard() {
                     <span className="text-[10px] text-neutral-500 font-mono italic">
                       {new Date(ann.timestamp).toLocaleDateString()}
                     </span>
-                    {(currentUser?.role === 'ADMIN' || currentUser?.role === 'ADD_ADMIN') && (
+                    {(currentUser?.role === 'admin' || currentUser?.role === 'add_admin') && (
                       <button 
                         onClick={() => {
                           if (confirm("Delete this announcement?")) deleteAnnouncement(ann.id);
@@ -148,7 +161,7 @@ export default function Dashboard() {
       </section>
 
       {/* Control Metrics Columns */}
-      <div className="grid md:grid-cols-3 gap-6">
+      <div className="grid md:grid-cols-4 gap-6">
         {/* Column 1: Global Efficiency */}
         <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl relative overflow-hidden">
           <div className="flex items-center gap-3 mb-4">
@@ -240,7 +253,7 @@ export default function Dashboard() {
                </div>
              </div>
              
-             {currentUser?.role === 'ADMIN' ? (
+             {currentUser?.role === 'admin' ? (
                 <div className="flex gap-1 pt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                    {[1, 2, 3].map((lvl) => (
                      <button
@@ -261,10 +274,65 @@ export default function Dashboard() {
              )}
           </div>
         </div>
+
+        {/* Column 4: Community Carer */}
+        <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl group overflow-hidden relative">
+          <div className="absolute -top-6 -right-6 opacity-5 group-hover:rotate-12 transition-transform">
+             <Heart size={80} />
+          </div>
+          <div className="flex items-center gap-3 mb-4">
+             <div className="p-2 bg-pink-500/10 rounded-lg text-pink-500">
+               <Heart size={18} />
+             </div>
+             <h3 className="text-xs font-black uppercase tracking-widest text-neutral-400">Community Carer</h3>
+          </div>
+          <div className="space-y-1 relative z-10">
+             <p className="text-xl font-black italic tracking-tighter text-pink-500 uppercase">
+               @{communityCarerName}
+             </p>
+             <p className="text-[10px] font-bold text-neutral-500 uppercase">
+               {communityCarerContribution} Contributions
+             </p>
+          </div>
+          <div className="mt-4 pt-4 border-t border-neutral-800/50 flex justify-between text-[8px] font-bold text-neutral-600 uppercase tracking-widest">
+             <span>Top CS Provider</span>
+             <Heart size={10} className="text-pink-500/50" />
+          </div>
+        </div>
       </div>
 
+      {/* Reward Claims Notify */}
+      {myClaimableRewards.length > 0 && (
+         <motion.div 
+           initial={{ y: 20, opacity: 0 }}
+           animate={{ y: 0, opacity: 1 }}
+           className="bg-gradient-to-r from-blue-600 to-purple-600 p-8 rounded-3xl shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6"
+         >
+            <div className="flex items-center gap-6">
+               <div className="p-4 bg-white/10 rounded-2xl">
+                  <Gift size={32} className="text-white" />
+               </div>
+               <div>
+                  <h3 className="text-2xl font-black italic text-white uppercase tracking-tight">Reward Available</h3>
+                  <p className="text-white/70 text-xs font-bold uppercase tracking-widest">You have {myClaimableRewards.length} unclaimed ranking reward(s)</p>
+               </div>
+            </div>
+            <div className="flex gap-4">
+               {myClaimableRewards.map(r => (
+                 <button 
+                   key={r.id}
+                   onClick={() => setRewardChoiceModal(r.id)}
+                   className="px-8 py-3 bg-white text-blue-600 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl hover:bg-neutral-100 transition-all shadow-xl"
+                 >
+                    Claim {r.type.replace('_', ' ')}
+                 </button>
+               ))}
+            </div>
+         </motion.div>
+      )}
+
       {/* Main Ranking Section */}
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-2 gap-8 pb-10">
         {/* Sender of the Month */}
         <motion.div 
           whileHover={{ y: -4 }}
@@ -281,15 +349,15 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {senderOfMonth ? (
+          {lbSenderOfMonth ? (
             <div className="flex items-end gap-6">
               <div className="flex-1">
                 <p className="text-neutral-400 text-xs font-mono mb-1 uppercase tracking-tighter italic">Top Contributor</p>
-                <h4 className="text-4xl font-black italic tracking-tight mb-2 text-neutral-100 uppercase">{senderOfMonth.username}</h4>
+                <h4 className="text-4xl font-black italic tracking-tight mb-2 text-neutral-100 uppercase">{senderOfMonthName}</h4>
                 <div className="flex items-center gap-4 text-sm">
                    <span className="flex items-center gap-1.5 text-orange-400 font-bold bg-orange-400/5 px-2 py-0.5 rounded border border-orange-400/10">
                      <TrendingUp size={14} />
-                     {senderOfMonth.totalLendingTransactions || 0} Leads
+                     {senderOfMonthDebts} Approved Debts
                    </span>
                 </div>
               </div>
@@ -303,7 +371,7 @@ export default function Dashboard() {
             <p className="text-neutral-600 italic">No rankings yet.</p>
           )}
 
-          {senderOfMonth?.id === currentUser?.id && (
+          {lbSenderOfMonth?.userId === currentUser?.id && (
             <div className="mt-8 p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl">
                <p className="text-xs text-orange-400 font-bold mb-1 italic">Reward Choice Available:</p>
                <p className="text-[10px] text-orange-500/80 leading-relaxed">Remove one warning OR get a one-time Debt-Free Pass. Contact Admin to claim.</p>
@@ -327,17 +395,16 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {bestSender ? (
+          {lbBestSender ? (
             <div className="flex items-end gap-6">
               <div className="flex-1">
                 <p className="text-neutral-400 text-xs font-mono mb-1 uppercase tracking-tighter italic">Top Rated</p>
-                <h4 className="text-4xl font-black italic tracking-tight mb-2 text-neutral-100 uppercase">{bestSender.username}</h4>
+                <h4 className="text-4xl font-black italic tracking-tight mb-2 text-neutral-100 uppercase">{bestSenderName}</h4>
                 <div className="flex items-center gap-4 text-sm">
                    <span className="flex items-center gap-1.5 text-yellow-400 font-bold bg-yellow-400/5 px-2 py-0.5 rounded border border-yellow-400/10">
                      <Star size={14} fill="currentColor" />
-                     {(bestSender.ratingAverage || 0).toFixed(1)} Rating
+                     {bestSenderRating.toFixed(1)} Average Rating
                    </span>
-                   <span className="text-neutral-500 text-[10px] font-mono">({bestSender.ratingCount || 0} Reviews)</span>
                 </div>
               </div>
               <div className="hidden sm:block">
@@ -347,394 +414,124 @@ export default function Dashboard() {
               </div>
             </div>
           ) : (
-            <p className="text-neutral-600 italic">No ratings yet.</p>
+            <p className="text-neutral-600 italic">No rankings yet.</p>
           )}
         </motion.div>
       </div>
 
-      {/* Monitor / Admin Control Panel */}
-      {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR' || currentUser?.role === 'ADD_ADMIN') && (
-        <section className="space-y-8 pt-10 border-t border-neutral-800">
-           <div className="flex items-center gap-3 mb-6">
-             <div className="p-2 bg-orange-500/10 rounded-lg text-orange-500">
-               <ShieldAlert size={20} />
-             </div>
-             <h2 className="text-xl font-bold">Monitor Authorities</h2>
-           </div>
-
-           <div className="grid lg:grid-cols-2 gap-8">
-              {/* Pending Approvals */}
-              <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6">
-                 <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-4 flex items-center justify-between">
-                    Pending Validation
-                    <span className="bg-orange-500 text-white text-[10px] px-2 py-0.5 rounded-full">
-                       {transactions.filter(t => t.status === 'pending').length}
-                    </span>
-                 </h3>
-                 <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                    {transactions.filter(t => t.status === 'pending').map(tx => {
-                      const receiver = users.find(u => u.id === tx.receiverId);
-                      const sender = users.find(u => u.id === tx.senderId);
-                      return (
-                        <div key={tx.id} className="bg-neutral-950 border border-neutral-800 p-4 rounded-xl flex items-center justify-between gap-4 group hover:border-orange-500/30 transition-all">
-                           <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-[8px] font-black uppercase px-1 rounded bg-neutral-800 text-neutral-400">{tx.type}</span>
-                                {tx.isCommunityService && <span className="text-[8px] font-black uppercase px-1 rounded bg-blue-500/20 text-blue-400">CS</span>}
-                              </div>
-                              <p className="text-xs font-bold truncate">
-                                 <span className="text-blue-400">{sender?.username}</span> → <span className="text-blue-400">{receiver?.username}</span>
-                              </p>
-                              <p className="text-[10px] text-neutral-500 mt-1 italic">{tx.workName} ({tx.pages} pages)</p>
-                              <p className="text-[10px] font-black text-orange-500 uppercase mt-0.5">{tx.amount} DB Value</p>
-                           </div>
-                           <div className="flex gap-2">
-                             <button 
-                                onClick={async () => {
-                                  try {
-                                    await approveTransaction(tx.id);
-                                    alert("TRANSACTION APPROVED: Consensus reached.");
-                                  } catch (error: any) {
-                                    alert("APPROVAL FAILED: " + error.message);
-                                  }
-                                }}
-                                className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all shadow-lg shadow-green-600/20"
-                              >
-                                 Approve
-                             </button>
-                             <button 
-                                onClick={async () => {
-                                  try {
-                                    await rejectTransaction(tx.id);
-                                    alert("TRANSACTION REJECTED: Monitor record synchronized.");
-                                  } catch (error: any) {
-                                    alert("REJECTION FAILED: " + error.message);
-                                  }
-                                }}
-                                className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
-                              >
-                                 Reject
-                             </button>
-                           </div>
-                        </div>
-                      );
-                    })}
-                    {transactions.filter(t => t.status === 'pending').length === 0 && (
-                      <p className="text-neutral-600 text-xs italic text-center py-4">All transactions cleared.</p>
-                    )}
-                 </div>
-              </div>
-
-              {/* Anonymous Complaints */}
-              <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6">
-                 <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-4 flex items-center justify-between">
-                    Complaint Queue
-                    <span className="bg-blue-500 text-white text-[10px] px-2 py-0.5 rounded-full">
-                       {complaints.filter(c => !c.reviewedBy.includes(currentUser.id)).length}
-                    </span>
-                 </h3>
-                 <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
-                    {complaints.map(c => (
-                      <div key={c.id} className="bg-neutral-950 border border-neutral-800 p-4 rounded-xl">
-                         <p className="text-xs text-neutral-300 leading-relaxed italic">"{c.content}"</p>
-                         <div className="mt-3 flex items-center justify-between">
-                            <span className="text-[9px] text-neutral-600 font-mono italic">{new Date(c.timestamp).toLocaleString()}</span>
-                            {!c.reviewedBy.includes(currentUser.id) ? (
-                              <button 
-                                onClick={() => reviewComplaint(c.id)}
-                                className="text-blue-500 hover:text-blue-400 text-[9px] font-black uppercase tracking-widest"
-                              >
-                                Mark Reviewed
-                              </button>
-                            ) : (
-                              <span className="text-green-500 text-[9px] font-black uppercase tracking-widest">Reviewed</span>
-                            )}
-                         </div>
-                      </div>
-                    ))}
-                    {complaints.length === 0 && (
-                      <p className="text-neutral-600 text-xs italic text-center py-4">No complaints recorded.</p>
-                    )}
-                 </div>
-              </div>
-
-               {/* Debt Forgiveness (Resolving Deck) */}
-               {currentUser?.role === 'ADMIN' && (
-                 <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 lg:col-span-2">
-                    <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-4 flex items-center justify-between">
-                       Resolving Deck (Debt Adjustments)
-                       <span className="bg-green-500 text-white text-[10px] px-2 py-0.5 rounded-full">
-                          {debtAdjustments.filter(a => a.status === 'REQUESTED').length}
-                       </span>
-                    </h3>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                       {debtAdjustments.filter(a => a.status === 'REQUESTED').map(adj => {
-                         const borrower = users.find(u => u.id === adj.borrowerId);
-                         const lender = users.find(u => u.id === adj.lenderId);
-                         return (
-                           <div key={adj.id} className="bg-neutral-950 border border-neutral-800 p-5 rounded-2xl">
-                              <p className="text-xs font-bold text-neutral-200 mb-1">
-                                <span className="text-green-400">{lender?.username}</span> requests forgiveness for <span className="text-blue-400">{borrower?.username}</span>
-                              </p>
-                              <p className="text-[10px] text-neutral-500 mb-4">Amount: {adj.amount} DB</p>
-                              <div className="flex gap-2">
-                                 <button 
-                                   onClick={() => {
-                                      if (confirm("Approve this debt adjustment?")) {
-                                         resolveForgiveness(adj.id, true);
-                                      }
-                                   }}
-                                   className="flex-1 py-2 bg-green-600 hover:bg-green-500 text-white text-[10px] font-black uppercase rounded-lg"
-                                 >
-                                   Approve
-                                 </button>
-                                 <button 
-                                   onClick={() => {
-                                      if (confirm("Reject this debt adjustment?")) {
-                                         resolveForgiveness(adj.id, false);
-                                      }
-                                   }}
-                                   className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase rounded-lg"
-                                 >
-                                   Reject
-                                 </button>
-                              </div>
-                           </div>
-                         );
-                       })}
-                       {debtAdjustments.filter(a => a.status === 'REQUESTED').length === 0 && (
-                         <div className="col-span-full py-8 text-center bg-neutral-950/30 border border-neutral-800 border-dashed rounded-2xl">
-                            <p className="text-neutral-600 text-xs italic">Resolving deck is clear.</p>
-                         </div>
-                       )}
-                    </div>
-                 </div>
-               )}
-           </div>
-        </section>
-      )}
-
-
-
-
-
-
-      {/* Admin Role Management */}
-      {(currentUser?.role === 'ADMIN' || currentUser?.role === 'ADD_ADMIN') && (
+      {/* Activity Logs */}
+      {activityLogs.length > 0 && (
         <section className="pt-10 border-t border-neutral-800">
            <div className="flex items-center gap-3 mb-6">
-             <div className="p-2 bg-red-500/10 rounded-lg text-red-500">
-               <ShieldCheck size={20} />
+             <div className="p-2 bg-neutral-800 rounded-lg text-neutral-400">
+               <Clock size={20} />
              </div>
-             <h2 className="text-xl font-bold">Role Matrix Control</h2>
+             <h2 className="text-xl font-bold uppercase tracking-tighter italic">Activity Protocol</h2>
            </div>
+           
+           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="px-6 py-4 border-b border-neutral-800 flex justify-between items-center">
+                 <span className="text-[10px] font-black uppercase text-neutral-500 tracking-widest">Recent Events</span>
+                 <span className="text-[10px] font-bold text-neutral-600">Total Logs: {activityLogs.length}</span>
+              </div>
+              <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
+                 <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 bg-neutral-900 z-10">
+                       <tr className="border-b border-neutral-800">
+                          <th className="px-6 py-3 text-[9px] font-black text-neutral-500 uppercase tracking-widest">Type</th>
+                          <th className="px-6 py-3 text-[9px] font-black text-neutral-500 uppercase tracking-widest">Action</th>
+                          <th className="px-6 py-3 text-[9px] font-black text-neutral-500 uppercase tracking-widest text-right">Timestamp</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-800/50">
+                       {activityLogs.slice(0, 50).map((log, logIdx) => (
+                         <tr key={log.id || `dash-log-${logIdx}`} className="hover:bg-white/[0.02] transition-colors group">
+                            <td className="px-6 py-4">
+                               <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
+                                 log.type === 'transaction' ? 'bg-blue-500/10 text-blue-400' :
+                                 log.type === 'admin' ? 'bg-red-500/10 text-red-400' :
+                                 'bg-neutral-800 text-neutral-400'
+                               }`}>
+                                 {log.type}
+                               </span>
+                            </td>
+                            <td className="px-6 py-4">
+                               <p className="text-xs text-neutral-300 font-medium group-hover:text-white">{log.action}</p>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                               <span className="text-[10px] text-neutral-600 font-mono italic">
+                                 {new Date(log.timestamp).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                               </span>
+                            </td>
+                         </tr>
+                       ))}
+                    </tbody>
+                 </table>
+              </div>
+           </div>
+        </section>
+      )}
+      
+      {/* Reward Choice Modal */}
+      {rewardChoiceModal && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+           <motion.div 
+             initial={{ scale: 0.9, opacity: 0 }}
+             animate={{ scale: 1, opacity: 1 }}
+             className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-[2.5rem] overflow-hidden shadow-2xl"
+           >
+              <div className="p-10">
+                 <h2 className="text-2xl font-black italic mb-2 uppercase tracking-tight">Select Your Reward</h2>
+                 <p className="text-neutral-500 text-[10px] font-black uppercase tracking-widest mb-10">Choose wisely. This action is final.</p>
+                 
+                 <div className="grid gap-4">
+                    <button 
+                      onClick={() => {
+                        claimReward(rewardChoiceModal, 'debt_clear');
+                        setRewardChoiceModal(null);
+                      }}
+                      className="group bg-neutral-950 border border-neutral-800 p-6 rounded-3xl hover:border-blue-500 transition-all text-left"
+                    >
+                       <div className="flex items-center gap-4 mb-3">
+                          <div className="p-3 bg-blue-500/10 rounded-2xl text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-all">
+                             <TrendingUp size={24} />
+                          </div>
+                          <div>
+                             <h4 className="font-black italic uppercase tracking-tight">Debt-Free Pass</h4>
+                             <p className="text-[9px] text-neutral-500 font-bold uppercase">Clear all active DB debt</p>
+                          </div>
+                       </div>
+                    </button>
 
-           <div className="grid md:grid-cols-2 gap-6">
-              <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl">
-                 <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-4">Administrators</h3>
-                 <div className="flex flex-wrap gap-2 mb-4">
-                    {rolesConfig.admins.map(a => (
-                      <span key={a} className="px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold rounded-full flex items-center gap-2">
-                         {a}
-                         <button 
-                            onClick={async () => {
-                              const newAdmins = rolesConfig.admins.filter(x => x !== a);
-                              if (newAdmins.length === 0) return alert("System must have at least one admin.");
-                              await updateRolesConfig(newAdmins, rolesConfig.monitors);
-                            }}
-                            className="hover:text-white"
-                          >
-                            ×
-                         </button>
-                      </span>
-                    ))}
+                    <button 
+                      onClick={() => {
+                        claimReward(rewardChoiceModal, 'warning_revoke');
+                        setRewardChoiceModal(null);
+                      }}
+                      className="group bg-neutral-950 border border-neutral-800 p-6 rounded-3xl hover:border-red-500 transition-all text-left"
+                    >
+                       <div className="flex items-center gap-4 mb-3">
+                          <div className="p-3 bg-red-500/10 rounded-2xl text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all">
+                             <ShieldAlert size={24} />
+                          </div>
+                          <div>
+                             <h4 className="font-black italic uppercase tracking-tight">Judicial Mercy</h4>
+                             <p className="text-[9px] text-neutral-500 font-bold uppercase">Revoke 1 Integrity Warning</p>
+                          </div>
+                       </div>
+                    </button>
+                    
+                    <button 
+                      onClick={() => setRewardChoiceModal(null)}
+                      className="mt-4 w-full py-4 text-[10px] font-black text-neutral-600 uppercase tracking-widest hover:text-white transition-colors"
+                    >
+                       Decide Later
+                    </button>
                  </div>
-                 <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const input = e.currentTarget.adminName as HTMLInputElement;
-                    const name = input.value.trim().toLowerCase();
-                    if (!name) return;
-                    if (rolesConfig.admins.includes(name)) return alert("User already an admin.");
-                    await updateRolesConfig([...rolesConfig.admins, name], rolesConfig.monitors);
-                    input.value = '';
-                 }} className="flex gap-2">
-                    <input name="adminName" type="text" placeholder="Add username..." className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-red-500" />
-                    <button type="submit" className="bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold px-4 py-2 rounded-xl">ADD</button>
-                 </form>
               </div>
-
-              <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl">
-                 <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-4">Monitors</h3>
-                 <div className="flex flex-wrap gap-2 mb-4">
-                    {rolesConfig.monitors.map(m => (
-                      <span key={m} className="px-3 py-1 bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-bold rounded-full flex items-center gap-2">
-                         {m}
-                         <button 
-                            onClick={async () => {
-                              const newMonitors = rolesConfig.monitors.filter(x => x !== m);
-                              await updateRolesConfig(rolesConfig.admins, newMonitors);
-                            }}
-                            className="hover:text-white"
-                          >
-                            ×
-                         </button>
-                      </span>
-                    ))}
-                 </div>
-                 <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const input = e.currentTarget.monitorName as HTMLInputElement;
-                    const name = input.value.trim().toLowerCase();
-                    if (!name) return;
-                    if (rolesConfig.monitors.includes(name)) return alert("User already a monitor.");
-                    await updateRolesConfig(rolesConfig.admins, [...rolesConfig.monitors, name]);
-                    input.value = '';
-                 }} className="flex gap-2">
-                    <input name="monitorName" type="text" placeholder="Add username..." className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-orange-500" />
-                    <button type="submit" className="bg-orange-600 hover:bg-orange-500 text-white text-[10px] font-bold px-4 py-2 rounded-xl">ADD</button>
-                 </form>
-              </div>
-           </div>
-        </section>
-      )}
-
-      {/* Global Activity Log */}
-      {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR') && (
-        <section className="bg-orange-500/5 border border-orange-500/10 p-8 rounded-3xl mt-12">
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h3 className="text-xl font-bold flex items-center gap-2 italic">
-                  <ShieldAlert className="text-orange-500" size={24} />
-                  System Punishment Center
-                </h3>
-                <p className="text-xs text-neutral-500 mt-1">Issue official warnings and integrity deductions.</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-black text-orange-500/50 uppercase tracking-[0.2em]">Authorized Access Only</p>
-              </div>
-            </div>
-
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              const form = e.currentTarget;
-              const username = (form.elements.namedItem('warnUsername') as HTMLInputElement).value;
-              const reason = (form.elements.namedItem('warnReason') as HTMLTextAreaElement).value;
-
-              if (!username || !reason) return alert("All fields are required.");
-              
-              const confirmed = window.confirm(`Issue an official warning to @${username}? This will automatically increase their Integrity LVL according to the mapping rules.`);
-              if (confirmed) {
-                await issueWarning(username, 0, reason); // Level is ignored by store logic now
-                form.reset();
-              }
-            }} className="grid md:grid-cols-3 gap-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2">Target Username</label>
-                  <input name="warnUsername" type="text" placeholder="e.g. johndoe" className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500" required />
-                </div>
-                <div className="p-4 bg-neutral-950 border border-neutral-800 rounded-2xl">
-                   <p className="text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2 text-center">Auto-Derivation Active</p>
-                   <p className="text-[10px] text-neutral-600 text-center leading-relaxed">
-                     System will automatically assign the next Warning Level (1-5) and apply respective penalties based on the user's current record.
-                   </p>
-                </div>
-              </div>
-              <div className="md:col-span-2 flex flex-col gap-4">
-                <div className="flex-1">
-                  <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2">Justification / Reason</label>
-                  <textarea name="warnReason" placeholder="Detailed reason for the warning..." className="w-full h-full min-h-[100px] bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 resize-none" required />
-                </div>
-                <button type="submit" className="w-full bg-orange-600 hover:bg-orange-500 text-white font-black py-4 rounded-xl uppercase tracking-[0.2em] text-xs transition-all shadow-lg shadow-orange-600/20">
-                  Execute System Verdict
-                </button>
-              </div>
-            </form>
-        </section>
-      )}
-
-      {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR') && (
-        <section className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 mt-10">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="p-3 bg-blue-500/10 rounded-2xl text-blue-500">
-               <Scale size={24} />
-            </div>
-            <div>
-               <h3 className="text-2xl font-bold italic">Resolving Deck Initiation</h3>
-               <p className="text-neutral-500 text-xs uppercase tracking-widest font-black">Open New Investigation</p>
-            </div>
-          </div>
-
-          <form onSubmit={async (e: any) => {
-            e.preventDefault();
-            const form = e.currentTarget;
-            const description = (form.elements.namedItem('caseDescription') as HTMLTextAreaElement).value;
-            const usersList = (form.elements.namedItem('involvedUsers') as HTMLInputElement).value;
-            
-            if (description && usersList) {
-              try {
-                const involved = usersList.split(',').map(s => s.trim().replace('@', ''));
-                await createResolvingCase(description, involved);
-                form.reset();
-                alert("INVESTIGATION SEALED: Case has been logged in the Resolving Deck.");
-              } catch (error: any) {
-                alert(`FAILED TO SEAL: ${error.message || 'Check connection'}`);
-              }
-            } else {
-              alert("CRITICAL ERROR: Investigation cannot be sealed without all required parameters.");
-            }
-          }}>
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2">Involved Users (comma separated @usernames)</label>
-                  <input name="involvedUsers" placeholder="@user1, @user2..." className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-all font-mono" required />
-                </div>
-                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl uppercase tracking-[0.2em] text-xs transition-all shadow-lg shadow-orange-600/20">
-                  Seal & Log Investigation
-                </button>
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2">Detailed Case Description</label>
-                <textarea name="caseDescription" placeholder="Outline the dispute or suspected discrepancy..." className="w-full h-full min-h-[120px] bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 resize-none font-medium" required />
-              </div>
-            </div>
-          </form>
-        </section>
-      )}
-
-      {currentUser?.role === 'ADMIN' && (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 mt-10">
-           <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-6 flex items-center justify-between">
-             Global Activity Log
-             <span className="text-[10px] text-neutral-500 font-normal">Real-time Admin Feed</span>
-           </h3>
-           <div className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
-              {activityLogs.map(log => {
-                const logDate = log.timestamp?.toDate ? log.timestamp.toDate() : (log.timestamp ? new Date(log.timestamp) : new Date());
-                const displayDetails = typeof log.details === 'object' 
-                  ? JSON.stringify(log.details).replace(/[{}"]/g, '').replace(/:/g, ': ').replace(/,/g, ' | ')
-                  : log.details;
-
-                return (
-                  <div key={log.id} className="text-[11px] font-mono border-b border-neutral-800/50 pb-3 flex items-start gap-4 hover:bg-white/5 transition-colors group px-2">
-                     <span className="text-neutral-600 shrink-0 w-20 py-1">{logDate.toLocaleTimeString()}</span>
-                     <p className="text-neutral-300 flex-1 py-1">
-                       <span className="text-blue-500 font-black">[{log.username || 'SYSTEM'}]</span>
-                       <span className="mx-2 text-neutral-500 font-bold">{log.action}:</span>
-                       <span className="text-white group-hover:text-blue-200 transition-colors">{displayDetails}</span>
-                     </p>
-                     <span className="text-[9px] text-neutral-700 font-mono uppercase shrink-0 pt-1">{logDate.toLocaleDateString()}</span>
-                  </div>
-                );
-              })}
-              {activityLogs.length === 0 && (
-                <p className="text-neutral-600 italic text-xs py-10 text-center">No activity recorded for this period.</p>
-              )}
-           </div>
+           </motion.div>
         </div>
       )}
-      {/* Announcement Modal */}
       {showAnnounceModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <motion.div 
@@ -760,14 +557,14 @@ export default function Dashboard() {
                  setAnnForm({ 
                    title: '', 
                    content: '', 
-                   section: (currentUser?.role === 'MONITOR' ? 'MONITORING' : 'GLOBAL') as AnnouncementSection 
+                   section: (currentUser?.role === 'monitor' ? 'MONITORING' : 'GLOBAL') as AnnouncementSection 
                  });
                }}>
                   <div>
                     <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2">Notice Type</label>
                     <div className="grid grid-cols-3 gap-3">
                        {['GLOBAL', 'MONITORING', 'RESOLVING'].map((s) => {
-                         const isDisabled = currentUser?.role === 'MONITOR' && s === 'GLOBAL';
+                         const isDisabled = currentUser?.role === 'monitor' && s === 'GLOBAL';
                          return (
                            <button
                              key={s}

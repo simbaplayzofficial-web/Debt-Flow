@@ -12,7 +12,7 @@ import { db } from '../firebase';
 export default function Groups() {
   const { 
     currentUser, groupPosts, postToGroup, 
-    resolvingDeck, justiceNexus, postVerdict, 
+    resolvingDeck, monitoringPillars, postVerdict, resolveBill,
     createResolvingCase, complaints, 
     addComplaint, reviewComplaint, users,
     bills, createBill, updateBill, postBillComment, postBillStaffComment
@@ -21,18 +21,14 @@ export default function Groups() {
   const [activeGroup, setActiveGroup] = useState<GroupId | 'monitoring'>('studying');
   const [postInput, setPostInput] = useState('');
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [billComments, setBillComments] = useState<BillComment[]>([]);
   const [billStaffComments, setBillStaffComments] = useState<BillStaffComment[]>([]);
 
-  // Bill Creation/Editing state
-  const [isCreatingBill, setIsCreatingBill] = useState(false);
-  const [billTitle, setBillTitle] = useState('');
-  const [billDesc, setBillDesc] = useState('');
-  
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  // Bill Resolution state
+  const [isResolvingBill, setIsResolvingBill] = useState(false);
   const [verdictInput, setVerdictInput] = useState('');
-  const [actionInput, setActionInput] = useState('');
-
+  
   const selectedBill = bills.find(b => b.id === selectedBillId);
   const selectedCase = resolvingDeck.find(c => c.id === selectedCaseId);
 
@@ -106,19 +102,10 @@ export default function Groups() {
                    </h3>
                    <p className="text-[10px] text-neutral-500 font-bold uppercase mt-1">Legislative & Policy Discussion</p>
                 </div>
-                {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR') && (
-                  <button 
-                    onClick={() => {
-                      setIsCreatingBill(true);
-                      setBillTitle('');
-                      setBillDesc('');
-                      setSelectedBillId(null);
-                    }}
-                    className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl flex items-center gap-2 text-xs font-bold transition-all"
-                  >
-                    <Plus size={14} /> New Bill
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                   <Info size={14} className="text-neutral-600" />
+                   <span className="text-[9px] font-bold text-neutral-600 uppercase italic">Discussion Channel</span>
+                </div>
               </div>
 
               {/* Monitor Deck Content */}
@@ -126,12 +113,11 @@ export default function Groups() {
                 {/* Bills List Sidebar */}
                 <div className="border-r border-neutral-800 overflow-y-auto custom-scrollbar p-4 space-y-3 bg-neutral-950/40">
                   <p className="text-[9px] font-black text-neutral-600 uppercase tracking-widest mb-2 px-2">Active Bills</p>
-                  {bills.map(bill => (
+                  {bills.filter(b => b.status !== 'resolved').map(bill => (
                     <button
                       key={bill.id}
                       onClick={() => {
                         setSelectedBillId(bill.id);
-                        setIsCreatingBill(false);
                       }}
                       className={`w-full text-left p-4 rounded-2xl border transition-all ${
                         selectedBillId === bill.id 
@@ -139,17 +125,27 @@ export default function Groups() {
                           : 'bg-neutral-900 border-neutral-800 hover:border-neutral-700'
                       }`}
                     >
-                      <h4 className="text-xs font-bold text-neutral-200 truncate">{bill.title}</h4>
-                      <p className="text-[10px] text-neutral-500 mt-1 truncate">{bill.description}</p>
-                      <div className="flex items-center justify-between mt-3">
-                        <span className="text-[8px] font-mono text-neutral-600 uppercase">
+                      <div className="flex justify-between items-start gap-2 mb-2">
+                        <span className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded leading-none ${
+                          bill.priority === 'Emergency' ? 'bg-red-500 text-white' : 
+                          bill.priority === 'High' ? 'bg-orange-500 text-white' : 'bg-neutral-800 text-neutral-400'
+                        }`}>
+                          {bill.priority}
+                        </span>
+                        <span className="text-[7px] font-black text-blue-500 uppercase italic tracking-tighter">
+                          {bill.category}
+                        </span>
+                      </div>
+                      <h4 className="text-[11px] font-black text-neutral-100 uppercase tracking-tight leading-tight line-clamp-2">{bill.title}</h4>
+                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-neutral-800/50">
+                        <span className="text-[8px] font-mono text-neutral-500 uppercase italic">
                           {new Date(bill.timestamp).toLocaleDateString()}
                         </span>
-                        {bill.lastEditedBy && <Edit2 size={10} className="text-blue-500/50" />}
+                        <span className="text-[8px] font-bold text-neutral-600 italic">@{bill.proposedBy}</span>
                       </div>
                     </button>
                   ))}
-                  {bills.length === 0 && !isCreatingBill && (
+                  {bills.length === 0 && (
                     <div className="text-center py-10 opacity-50 px-4">
                       <Shield size={24} className="mx-auto mb-2 text-neutral-700" />
                       <p className="text-[10px] font-bold text-neutral-600 italic">No bills drafted yet.</p>
@@ -159,84 +155,71 @@ export default function Groups() {
 
                 {/* Discussion Area */}
                 <div className="flex flex-col overflow-hidden bg-neutral-900/20">
-                  {isCreatingBill ? (
-                    <div className="p-8 space-y-6 max-w-2xl mx-auto w-full">
-                       <h2 className="text-lg font-black italic text-blue-500 uppercase tracking-tight">Draft New Lex Bill</h2>
-                       <div className="space-y-4">
-                          <div>
-                            <label className="text-[10px] font-black text-neutral-500 uppercase mb-2 block">Bill Title</label>
-                            <input 
-                              value={billTitle}
-                              onChange={e => setBillTitle(e.target.value)}
-                              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none transition-all"
-                              placeholder="e.g. Bill #405: The Transparency Act"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-black text-neutral-500 uppercase mb-2 block">Description & Payload</label>
-                            <textarea 
-                              value={billDesc}
-                              onChange={e => setBillDesc(e.target.value)}
-                              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none transition-all h-48"
-                              placeholder="Describe the proposed changes or rules..."
-                            />
-                          </div>
-                          <div className="flex gap-4 pt-4">
-                            <button 
-                              onClick={async () => {
-                                try {
-                                  if (selectedBillId) {
-                                    await updateBill(selectedBillId, billTitle, billDesc);
-                                    alert("BILL UPDATED: Policy changes synchronized.");
-                                  } else {
-                                    await createBill(billTitle, billDesc);
-                                    alert("BILL PUBLISHED: Monitor Deck updated.");
-                                  }
-                                  setIsCreatingBill(false);
-                                  setSelectedBillId(null);
-                                } catch (error: any) {
-                                  alert(`SYNC FAILURE: ${error.message}`);
-                                }
-                              }}
-                              className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg"
-                            >
-                              {selectedBillId ? 'Update Proposal' : 'Publish to Deck'}
-                            </button>
-                            <button 
-                              onClick={() => setIsCreatingBill(false)}
-                              className="px-6 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold rounded-xl transition-all"
-                            >
-                              Abort
-                            </button>
-                          </div>
-                       </div>
-                    </div>
-                  ) : selectedBill ? (
+                  {selectedBill ? (
                     <div className="flex flex-col h-full overflow-hidden">
                       {/* Bill Meta */}
-                      <div className="p-6 bg-neutral-950/40 border-b border-neutral-800">
+                      <div className="p-8 bg-neutral-950/40 border-b border-neutral-800">
                         <div className="flex items-start justify-between mb-4">
                            <div className="flex-1">
-                             <h2 className="text-xl font-black italic text-white leading-tight">{selectedBill.title}</h2>
-                             {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR') && (
-                               <button 
-                                 onClick={() => {
-                                   setBillTitle(selectedBill.title);
-                                   setBillDesc(selectedBill.description);
-                                   setIsCreatingBill(true);
-                                 }}
-                                 className="mt-2 text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 flex items-center gap-1"
-                               >
-                                 <Edit2 size={10} /> Edit Proposal
-                               </button>
-                             )}
+                             <div className="flex items-center gap-3 mb-2">
+                               <span className="text-[9px] font-black text-blue-500 uppercase px-2 py-1 bg-blue-500/10 rounded-lg border border-blue-500/20 italic tracking-widest">{selectedBill.category}</span>
+                               <span className="text-[9px] font-black text-neutral-500 uppercase tracking-widest italic tracking-[0.2em]">PROPOSED BY @{selectedBill.proposedBy}</span>
+                             </div>
+                             <h2 className="text-2xl font-black italic text-white leading-tight uppercase tracking-tighter">{selectedBill.title}</h2>
                            </div>
                            <div className="flex flex-col items-end gap-1">
-                              <span className="text-[10px] font-mono text-blue-500 bg-blue-500/10 px-2 py-1 rounded-md">STATUS: ACTIVE DISCUSSION</span>
-                              <span className="text-[8px] text-neutral-600 font-mono italic">PUBLISHED: {new Date(selectedBill.timestamp).toLocaleString()}</span>
+                               <div className="flex items-center gap-2">
+                                 <div className={`w-2 h-2 rounded-full ${selectedBill.priority === 'Emergency' ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`} />
+                                 <span className="text-[10px] font-mono text-neutral-300 bg-neutral-800 px-2 py-1 rounded-md uppercase tracking-widest italic">{selectedBill.priority} Priority</span>
+                               </div>
+                               <span className="text-[8px] text-neutral-600 font-mono italic">FILED: {new Date(selectedBill.timestamp).toLocaleString()}</span>
                            </div>
                         </div>
-                        <p className="text-sm text-neutral-400 leading-relaxed max-w-4xl">{selectedBill.description}</p>
+                        <div className="bg-neutral-900/50 border border-neutral-800 p-6 rounded-2xl italic">
+                          <p className="text-xs text-neutral-400 leading-relaxed max-w-4xl">{selectedBill.description}</p>
+                        </div>
+                        
+                        {currentUser?.role === 'admin' && selectedBill.status !== 'resolved' && (
+                          <div className="flex gap-4 pt-4 border-t border-neutral-800">
+                             {isResolvingBill ? (
+                               <div className="flex-1 space-y-4">
+                                  <textarea 
+                                    value={verdictInput}
+                                    onChange={e => setVerdictInput(e.target.value)}
+                                    placeholder="Enter final bill verdict / resolution details..."
+                                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-xs text-white outline-none focus:border-green-500 h-24"
+                                  />
+                                  <div className="flex gap-2">
+                                    <button 
+                                      onClick={async () => {
+                                        if (!verdictInput.trim()) return;
+                                        await resolveBill(selectedBill.id, verdictInput);
+                                        setIsResolvingBill(false);
+                                        setVerdictInput('');
+                                        alert("BILL RESOLVED: Verdict archived in Monitoring Pillars.");
+                                      }}
+                                      className="flex-1 py-2 bg-green-600 hover:bg-green-500 text-white text-[10px] font-black uppercase rounded-lg transition-all"
+                                    >
+                                      Confirm Verdict
+                                    </button>
+                                    <button 
+                                      onClick={() => setIsResolvingBill(false)}
+                                      className="px-4 py-2 bg-neutral-800 text-neutral-400 text-[10px] font-black uppercase rounded-lg"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                               </div>
+                             ) : (
+                               <button 
+                                 onClick={() => setIsResolvingBill(true)}
+                                 className="flex items-center gap-2 px-4 py-2 bg-green-600/10 border border-green-500/30 text-green-500 text-[10px] font-black uppercase rounded-lg hover:bg-green-600 hover:text-white transition-all"
+                               >
+                                 <Scale size={14} /> Resolve & Pass Verdict
+                               </button>
+                             )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Dual Comment Columns */}
@@ -290,7 +273,7 @@ export default function Groups() {
                               </h4>
                               <span className="text-[8px] text-blue-900 font-bold uppercase">Restricted Access</span>
                            </div>
-                           {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR') ? (
+                           {(currentUser?.role === 'admin' || currentUser?.role === 'monitor') ? (
                              <>
                                <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                                   {billStaffComments.map((comment, i) => {
@@ -408,22 +391,36 @@ export default function Groups() {
         <aside className="space-y-8">
            {/* Monitor's Pillar */}
            <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden">
-              <div className="p-5 border-b border-neutral-800 bg-blue-600/5 flex items-center gap-2">
+               <div className="p-5 border-b border-neutral-800 bg-blue-600/5 flex items-center gap-2">
                  <Shield size={16} className="text-blue-500" />
                  <h3 className="text-xs font-black uppercase tracking-widest italic">Monitoring Pillars</h3>
               </div>
               <div className="p-5 space-y-4">
-                 <div className="space-y-2">
-                    <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-tighter italic">Verdict Board</p>
-                    {justiceNexus.length > 0 ? (
-                      justiceNexus.slice(0, 2).map(v => (
-                        <div key={v.id} className="p-3 bg-neutral-950 border border-neutral-800 rounded-xl">
-                           <p className="text-xs text-neutral-300 font-bold mb-1 italic">"{v.verdict}"</p>
-                           <p className="text-[10px] text-blue-500 font-mono">ACTION: {v.actionTaken}</p>
-                        </div>
-                      ))
+                 <div className="space-y-4">
+                    <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-tighter italic">Pillar Verdicts</p>
+                    {monitoringPillars.length > 0 ? (
+                      monitoringPillars.slice(0, 5).map(p => {
+                        const author = users.find(u => u.id === p.issuedBy);
+                        return (
+                          <div key={p.id} className="p-4 bg-neutral-950 border border-neutral-800 rounded-2xl relative overflow-hidden group">
+                             <div className="absolute top-0 right-0 p-2 opacity-10">
+                                <Shield size={32} />
+                             </div>
+                             <div className="flex justify-between items-start mb-2">
+                                <span className="text-[9px] font-mono text-blue-500 font-bold">{p.caseNumber}</span>
+                                <span className="text-[8px] text-neutral-600">{new Date(p.timestamp).toLocaleDateString()}</span>
+                             </div>
+                             <h5 className="text-[10px] font-black text-neutral-200 uppercase tracking-tight mb-2 truncate">{p.title}</h5>
+                             <p className="text-[11px] text-blue-400 font-bold italic leading-tight">"{p.verdict}"</p>
+                             <div className="mt-3 flex items-center gap-2 pt-3 border-t border-neutral-800/50">
+                                <span className="text-[8px] text-neutral-500 uppercase font-black">Authored By:</span>
+                                <span className="text-[9px] text-neutral-400 font-bold italic">@{author?.username || 'admin'}</span>
+                             </div>
+                          </div>
+                        );
+                      })
                     ) : (
-                      <p className="text-[10px] text-neutral-600 italic">No verdicts issued.</p>
+                      <p className="text-[10px] text-neutral-600 italic">Historical records clear.</p>
                     )}
                  </div>
                  <div className="pt-4 border-t border-neutral-800">
@@ -441,19 +438,14 @@ export default function Groups() {
               </div>
               <div className="p-5 space-y-4 max-h-60 overflow-y-auto custom-scrollbar">
                 {resolvingDeck.filter(c => c.status === 'under_investigation').map(c => (
-                   <button 
+                   <div 
                      key={c.id} 
-                     onClick={() => setSelectedCaseId(c.id)}
-                     className={`w-full text-left p-4 rounded-xl relative overflow-hidden transition-all border ${
-                       selectedCaseId === c.id 
-                         ? 'bg-orange-500/10 border-orange-500/50' 
-                         : 'bg-orange-500/5 border-orange-500/10 hover:border-orange-500/30'
-                     }`}
+                     className="w-full text-left p-4 rounded-xl relative overflow-hidden bg-orange-500/5 border border-orange-500/10"
                    >
                       <div className="absolute top-0 right-0 w-12 h-12 bg-orange-500/10 -mr-6 -mt-6 rotate-45" />
                       <p className="text-xs text-orange-200 leading-relaxed italic truncate">{c.description}</p>
-                      <span className="text-[9px] font-bold text-orange-500/80 uppercase tracking-widest block mt-2">Status: Under Investigation</span>
-                   </button>
+                      <p className="text-[10px] text-neutral-500 mt-2 font-black uppercase tracking-widest leading-relaxed">Refer specifically to Monitor Workspace for details.</p>
+                   </div>
                 ))}
                 {resolvingDeck.filter(c => c.status === 'under_investigation').length === 0 && (
                    <p className="text-xs text-neutral-600 text-center italic py-4">Equilibrium maintained.</p>
@@ -494,183 +486,34 @@ export default function Groups() {
       </div>
 
       {/* Global View (Bottom Section) */}
-      <div className="grid lg:grid-cols-2 gap-6 pt-10 border-t border-neutral-800">
-          {/* Column 1: Justice Nexus Feed */}
-          <div className="bg-neutral-900/50 border border-neutral-800 p-6 rounded-3xl">
-             <h4 className="text-[10px] font-black uppercase tracking-widest text-orange-500 mb-4 flex items-center gap-2 italic">
-                <Scale size={12} /> Justice Nexus
-             </h4>
-             <div className="grid sm:grid-cols-2 gap-3">
-                {justiceNexus.slice(0, 4).map(v => (
-                  <div key={v.id} className="p-4 bg-neutral-950 border border-neutral-800 rounded-2xl flex items-start gap-2 group">
-                     <Shield size={10} className="text-blue-500 mt-1 flex-shrink-0" />
-                     <div>
-                        <p className="text-[11px] font-bold text-neutral-100 italic mb-0.5">"{v.verdict}"</p>
-                        <p className="text-[9px] text-neutral-500 leading-relaxed font-mono uppercase tracking-tighter shadow-sm">{v.actionTaken}</p>
-                     </div>
-                  </div>
-                ))}
-                {justiceNexus.length === 0 && (
-                  <p className="text-[10px] text-neutral-600 italic">Judicial peace prevails.</p>
-                )}
+      <div className="grid lg:grid-cols-1 gap-6 pt-10 border-t border-neutral-800">
+          {/* Column 2: Internal Stats */}
+          <div className="bg-neutral-900/50 border border-neutral-800 p-8 rounded-4xl">
+             <div className="flex items-center justify-between mb-8">
+                <h4 className="text-[12px] font-black uppercase tracking-[0.3em] text-neutral-500 flex items-center gap-3 italic">
+                  <Shield size={16} /> Unit Statistics & Control
+                </h4>
+                <div className="w-12 h-1 bg-neutral-800 rounded-full" />
              </div>
-          </div>
-
-          {/* Column 2: Internal Affairs (Complaint Box for Staff) */}
-          <div className="bg-neutral-900/50 border border-neutral-800 p-6 rounded-3xl">
-             <h4 className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-4 flex items-center gap-2 italic">
-               <Box size={12} /> Internal Affairs
-             </h4>
-             <div className="space-y-4">
-                <div className="flex justify-between items-center bg-neutral-950 p-4 rounded-2xl border border-neutral-800">
-                   <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                      <span className="text-[10px] font-bold text-neutral-300 uppercase">Active Internal Inquiries</span>
+             <div className="grid md:grid-cols-2 gap-8">
+                <div className="flex justify-between items-center bg-neutral-950 p-8 rounded-3xl border border-neutral-800 shadow-inner group transition-all hover:border-blue-500/30">
+                   <div className="flex items-center gap-4">
+                      <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+                      <div>
+                         <p className="text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-1 italic">Connected Nodes</p>
+                         <p className="text-[10px] font-bold text-neutral-300 uppercase italic">Operational Members</p>
+                      </div>
                    </div>
-                   <span className="text-xl font-black italic text-red-500">{complaints.filter(c => c.reviewedBy.length === 0).length}</span>
+                   <span className="text-4xl font-black italic text-blue-500 tracking-tighter">{users.length}</span>
                 </div>
-                {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR') ? (
-                  <div className="pt-2">
-                    <p className="text-[10px] text-neutral-600 italic mb-3">Staff verification required for review:</p>
-                    <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                       {complaints.filter(c => !c.reviewedBy.includes(currentUser.id)).map(c => (
-                         <div key={c.id} className="p-4 bg-red-950/5 border border-red-950/20 rounded-2xl group relative hover:bg-red-950/10 transition-all">
-                            <p className="text-[10px] text-neutral-300 leading-relaxed italic pr-8">"{c.content}"</p>
-                            <button 
-                              onClick={() => reviewComplaint(c.id)}
-                              className="absolute top-4 right-4 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-neutral-950 border border-neutral-800 rounded-lg text-green-500 hover:text-green-400"
-                            >
-                               <Eye size={12} />
-                            </button>
-                         </div>
-                       ))}
-                       {complaints.filter(c => !c.reviewedBy.includes(currentUser.id)).length === 0 && (
-                          <div className="text-center py-6 border border-dashed border-neutral-800 rounded-2xl opacity-50">
-                             <p className="text-[10px] text-neutral-600 uppercase font-black tracking-widest italic font-mono">Queue Clear</p>
-                          </div>
-                       )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-6 border border-dashed border-neutral-800 rounded-2xl flex flex-col items-center justify-center text-center opacity-40">
-                     <Lock size={24} className="text-neutral-700 mb-3" />
-                     <p className="text-[9px] font-black uppercase text-neutral-600 tracking-widest">Inquiry Access Locked</p>
-                     <p className="text-[9px] italic mt-1 leading-relaxed">Encrypted data strictly for Admin/Monitor review only.</p>
-                  </div>
-                )}
+                <div className="p-8 border border-dashed border-neutral-800 rounded-3xl flex flex-col items-center justify-center text-center bg-neutral-950/20">
+                   <Shield size={32} className="text-neutral-800 mb-4 opacity-40" />
+                   <p className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] italic">Administrative Directive</p>
+                   <p className="text-[10px] italic mt-2 text-neutral-600 max-w-[300px]">Strategic bill filing and technical validations are strictly managed via the Monitor Workspace.</p>
+                </div>
              </div>
           </div>
       </div>
-      {/* Case Resolution Modal */}
-      {selectedCaseId && selectedCase && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-          <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-[2.5rem] overflow-hidden shadow-2xl"
-          >
-            <div className="p-10">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-orange-500/10 rounded-2xl text-orange-500">
-                    <Scale size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-black italic text-white uppercase tracking-tight">Justice Nexus Protocol</h3>
-                    <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest mt-1">Pending Resolution File</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setSelectedCaseId(null)}
-                  className="p-2 text-neutral-500 hover:text-white"
-                >
-                  <Lock size={20} />
-                </button>
-              </div>
-
-              <div className="p-6 bg-neutral-950 border border-neutral-800 rounded-3xl mb-8">
-                 <p className="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] mb-3">Investigation Description:</p>
-                 <p className="text-neutral-200 italic leading-relaxed text-sm">"{selectedCase.description}"</p>
-                 <div className="mt-4 flex gap-2 flex-wrap">
-                    {selectedCase.involvedUsers.map(u => (
-                      <span key={u} className="text-[9px] font-black uppercase px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-neutral-500">@{u}</span>
-                    ))}
-                 </div>
-              </div>
-
-              {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MONITOR') ? (
-                <div className="space-y-6">
-                   <div className="space-y-4">
-                      <div>
-                        <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2">Final Verdict</label>
-                        <textarea 
-                          value={verdictInput}
-                          onChange={(e) => setVerdictInput(e.target.value)}
-                          placeholder="State the findings of the investigation..."
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl p-4 text-sm text-white focus:border-orange-500 outline-none transition-all h-24"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2">Action / Penalty</label>
-                        <input 
-                          type="text"
-                          value={actionInput}
-                          onChange={(e) => setActionInput(e.target.value)}
-                          placeholder="e.g. Warning Level 2 Issued, Debt Forgiven..."
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-sm text-white focus:border-orange-500 outline-none transition-all"
-                        />
-                      </div>
-                   </div>
-
-                   <div className="flex gap-4 pt-4">
-                      <button 
-                        onClick={() => {
-                          setSelectedCaseId(null);
-                          setVerdictInput('');
-                          setActionInput('');
-                        }}
-                        className="flex-1 py-4 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 font-black rounded-2xl transition-all uppercase tracking-widest text-xs"
-                      >
-                        Suspend
-                      </button>
-                      <button 
-                         onClick={async () => {
-                           try {
-                             if (!verdictInput || !actionInput) {
-                               alert("ADJUDICATION ERROR: Verdict and Action parameters required.");
-                               return;
-                             }
-                             await postVerdict(selectedCaseId, verdictInput, actionInput);
-                             setSelectedCaseId(null);
-                             setVerdictInput('');
-                             setActionInput('');
-                             alert("CASE SEALED: Verdict published to Justice Nexus.");
-                           } catch (error: any) {
-                             alert("SYNC ERROR: " + error.message);
-                           }
-                         }}
-                         className="flex-2 py-4 bg-orange-600 hover:bg-orange-500 text-white font-black rounded-2xl transition-all shadow-xl shadow-orange-600/20 uppercase tracking-widest text-xs flex items-center justify-center gap-3"
-                      >
-                        <Scale size={18} /> Seal & Log Verdict
-                      </button>
-                   </div>
-                </div>
-              ) : (
-                <div className="text-center py-10 opacity-50 bg-neutral-950 rounded-3xl border border-neutral-800">
-                   <Lock size={32} className="mx-auto mb-4 text-neutral-600" />
-                   <p className="text-xs uppercase font-black tracking-widest text-neutral-600">Administrative Locked: View Only</p>
-                   <button 
-                     onClick={() => setSelectedCaseId(null)}
-                     className="mt-6 px-10 py-3 bg-neutral-800 rounded-xl text-[10px] font-black uppercase text-neutral-400 hover:text-white transition-colors"
-                   >
-                     Close File
-                   </button>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        </div>
-      )}
     </div>
   );
 }

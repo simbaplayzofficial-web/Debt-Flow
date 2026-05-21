@@ -1,5 +1,6 @@
 {
   "name": "DebtFlow: Work Exchange",
-  "description": "A strictly regulated Debt-Based Work Exchange System.",
-  "requestFramePermissions": []
+  "description": "A strictly regulated Debt-Based Work Exchange System with hierarchical oversight, an AI-powered intelligence hub (Chatterbox), and a unified legislative voting system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -25,17 +25,16 @@
       "description": "Work exchange record",
       "type": "object",
       "properties": {
-        "askerId": { "type": "string" },
         "senderId": { "type": "string" },
-        "workName": { "type": "string" },
+        "askerId": { "type": "string" },
         "pages": { "type": "number" },
-        "debtAmount": { "type": "number" },
-        "status": { "type": "string", "enum": ["PENDING", "APPROVED"] },
+        "debt": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "isCommunityService": { "type": "boolean" },
         "rating": { "type": "number" },
-        "timestamp": { "type": "string" },
-        "isForgiven": { "type": "boolean" }
+        "createdAt": { "type": "string" }
       },
-      "required": ["askerId", "senderId", "workName", "pages", "debtAmount", "status"]
+      "required": ["senderId", "askerId", "pages", "debt", "status", "createdAt"]
     },
     "Announcement": {
       "title": "Announcement",
@@ -110,12 +109,17 @@
       "type": "object",
       "properties": {
         "title": { "type": "string" },
+        "category": { "type": "string" },
         "description": { "type": "string" },
+        "proposedBy": { "type": "string" },
         "createdBy": { "type": "string" },
-        "lastEditedBy": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "resolved"] },
+        "verdict": { "type": "string" },
+        "createdAt": { "type": "string" },
         "timestamp": { "type": "string" }
       },
-      "required": ["title", "description", "createdBy", "timestamp"]
+      "required": ["title", "category", "description", "proposedBy", "createdBy", "priority", "status", "timestamp"]
     },
     "BillComment": {
       "title": "Bill Comment",
@@ -139,9 +143,173 @@
         "timestamp": { "type": "string" }
       },
       "required": ["userId", "role", "message", "timestamp"]
+    },
+    "RoleRequest": {
+      "title": "Role Request",
+      "description": "Request for high-privilege role",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "requestedRole": { "type": "string", "enum": ["ADMIN", "MONITOR"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["userId", "username", "requestedRole", "status", "timestamp"]
+    },
+    "ForgivenessLog": {
+      "title": "Forgiveness Log",
+      "description": "Log of debt forgiveness",
+      "type": "object",
+      "properties": {
+        "forgiverId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "debtsForgiven": { "type": "number" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["forgiverId", "receiverId", "debtsForgiven", "timestamp"]
+    },
+    "Leaderboard": {
+      "title": "Leaderboard",
+      "description": "Global leaderboard metrics",
+      "type": "object",
+      "properties": {
+        "communityCarer": {
+          "type": "object",
+          "properties": {
+            "userId": { "type": "string" },
+            "username": { "type": "string" },
+            "totalContribution": { "type": "number" }
+          }
+        },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "MonitoringPillar": {
+      "title": "Monitoring Pillar",
+      "description": "Final bill or case verdict",
+      "type": "object",
+      "properties": {
+        "billId": { "type": "string", "description": "Optional id of original bill" },
+        "caseId": { "type": "string", "description": "Optional id of original case" },
+        "title": { "type": "string" },
+        "verdict": { "type": "string" },
+        "caseNumber": { "type": "string" },
+        "issuedBy": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["title", "verdict", "issuedBy", "timestamp"]
+    },
+    "ChatterboxMessage": {
+      "title": "Chatterbox Message",
+      "description": "A single message in an AI conversation",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "assistant"] },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["userId", "role", "content", "timestamp"]
+    },
+    "Vote": {
+      "title": "Vote",
+      "description": "Unified system for elections, polling, and decisions",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["Election", "Polling", "Decision", "Confidence Vote"] },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "isAnonymous": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "closed"] },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "totalVotes": { "type": "number" },
+        "results": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "count": { "type": "number" },
+              "users": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      },
+      "required": ["title", "type", "options", "isAnonymous", "status", "createdBy", "createdAt"]
+    },
+    "VoteResponse": {
+      "title": "Vote Response",
+      "description": "A single vote response from a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User ID" },
+        "selectedOption": { "type": "string" },
+        "votedAt": { "type": "string" },
+        "username": { "type": "string" }
+      },
+      "required": ["id", "selectedOption", "votedAt", "username"]
+    },
+    "NetDebt": {
+      "title": "Net Debt",
+      "description": "Bilateral balance between two users",
+      "type": "object",
+      "properties": {
+        "user1Id": { "type": "string" },
+        "user2Id": { "type": "string" },
+        "netBalance": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["user1Id", "user2Id", "netBalance", "updatedAt"]
+    },
+    "Reward": {
+      "title": "Reward",
+      "description": "User achievement reward",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "claimed": { "type": "boolean" },
+        "rewardChosen": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "period": { "type": "string" }
+      },
+      "required": ["userId", "type", "claimed", "timestamp", "period"]
     }
   },
   "firestore": {
+    "debts/{id}": {
+      "schema": { "$ref": "#/entities/NetDebt" },
+      "description": "Collection of bilateral debt balances"
+    },
+    "rewards/{id}": {
+      "schema": { "$ref": "#/entities/Reward" },
+      "description": "Collection of user rewards"
+    },
+    "monitoringPillars/{id}": {
+      "schema": { "$ref": "#/entities/MonitoringPillar" },
+      "description": "Historical collection of finalized verdicts"
+    },
+    "votes/{id}": {
+      "schema": { "$ref": "#/entities/Vote" },
+      "description": "Unified voting system records"
+    },
+    "votes/{voteId}/responses/{userId}": {
+      "schema": { "$ref": "#/entities/VoteResponse" },
+      "description": "Individual responses for a vote"
+    },
+    "forgivenessLogs/{id}": {
+      "schema": { "$ref": "#/entities/ForgivenessLog" },
+      "description": "Audit trail for debt forgiveness"
+    },
+    "leaderboard/current": {
+      "schema": { "$ref": "#/entities/Leaderboard" },
+      "description": "Real-time global leaderboard document"
+    },
+    "roleRequests/{id}": {
+      "schema": { "$ref": "#/entities/RoleRequest" },
+      "description": "Collection of role access requests"
+    },
     "systemStatus/{id}": {
       "schema": { "$ref": "#/entities/SystemStatus" },
       "description": "Global system status and emergency level"
@@ -185,6 +353,10 @@
     "bills/{billId}/staffComments/{commentId}": {
       "schema": { "$ref": "#/entities/BillStaffComment" },
       "description": "Internal staff comments on a bill"
+    },
+    "chatterbox_threads/{userId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatterboxMessage" },
+      "description": "Private AI assistant conversations per user"
     }
   }
 }
