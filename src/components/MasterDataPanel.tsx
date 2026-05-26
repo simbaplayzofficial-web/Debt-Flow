@@ -14,7 +14,7 @@ type DataTab = 'registry' | 'activity' | 'validations' | 'backup';
 export default function MasterDataPanel() {
   const { 
     users, transactions, debts, activityLogs, 
-    announcements, resolvingDeck, monitoringPillars,
+    announcements, resolvingDeck, anonymousComplaints,
     debtAdjustments, groupPosts, resetSystem 
   } = useStore();
   
@@ -124,16 +124,18 @@ export default function MasterDataPanel() {
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resolvingData), "Resolving Deck");
 
-      // Monitoring Pillars (Verdicts) Sheet
-      const pillarData = monitoringPillars.map(p => ({
-        CaseNumber: p.caseNumber,
-        Title: p.title,
-        Verdict: p.verdict,
-        IssuedBy: users.find(u => u.id === p.issuedBy)?.username || p.issuedBy,
-        Timestamp: p.timestamp,
-        OriginalID: p.billId || p.caseId
+      // Anonymous Complaints Sheet
+      const complData = (anonymousComplaints || []).map(ac => ({
+        ID: ac.id,
+        Message: ac.message,
+        Category: ac.category || 'General',
+        CreatedAt: ac.createdAt,
+        Status: ac.status,
+        Source: ac.source,
+        AssignedTo: users.find(u => u.id === ac.assignedTo)?.username || ac.assignedTo || 'Unassigned',
+        InternalNotes: ac.internalNotes || ''
       }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pillarData), "Monitoring Pillars");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(complData), "Anonymous Complaints");
 
       // Activity Logs Sheet
       const logsData = activityLogs.map(l => ({

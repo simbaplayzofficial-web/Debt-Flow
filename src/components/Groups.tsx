@@ -3,22 +3,22 @@ import { useStore, GroupId, Bill, BillComment, BillStaffComment } from '../store
 import { 
   Shield, MessageSquare, Scale, Box, Send, 
   Eye, Archive, MessageCircle, Info, BookOpen,
-  Plus, Edit2, User, Lock
+  Plus, Edit2, User, Lock, EyeOff
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { BlackBox } from './BlackBox';
 
 export default function Groups() {
   const { 
     currentUser, groupPosts, postToGroup, 
-    resolvingDeck, monitoringPillars, postVerdict, resolveBill,
-    createResolvingCase, complaints, 
-    addComplaint, reviewComplaint, users,
+    resolvingDeck, resolveBill,
+    createResolvingCase, users,
     bills, createBill, updateBill, postBillComment, postBillStaffComment
   } = useStore();
 
-  const [activeGroup, setActiveGroup] = useState<GroupId | 'monitoring'>('studying');
+  const [activeGroup, setActiveGroup] = useState<string>('studying');
   const [postInput, setPostInput] = useState('');
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -59,7 +59,7 @@ export default function Groups() {
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!postInput.trim()) return;
-    await postToGroup(activeGroup, postInput);
+    await postToGroup(activeGroup as GroupId, postInput);
     setPostInput('');
   };
 
@@ -70,7 +70,8 @@ export default function Groups() {
         {[
           { id: 'studying', label: 'Studying Together', icon: BookOpen },
           { id: 'chatting', label: 'Chatting Together', icon: MessageCircle },
-          { id: 'monitoring', label: 'Monitor Deck', icon: Shield },
+          { id: 'monitoring', label: 'Council Workspace', icon: Shield },
+          { id: 'blackbox', label: 'Black Box', icon: Lock },
         ].map(g => (
           <button
             key={g.id}
@@ -91,14 +92,18 @@ export default function Groups() {
       <div className="grid lg:grid-cols-[1fr_400px] gap-8">
         {/* Active Communication Stream */}
         <section className="bg-neutral-900 border border-neutral-800 rounded-3xl flex flex-col h-[700px] overflow-hidden">
-          {activeGroup === 'monitoring' ? (
+          {activeGroup === 'blackbox' ? (
+            <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar bg-neutral-950/20">
+              <BlackBox source="groups_blackbox" />
+            </div>
+          ) : activeGroup === 'monitoring' ? (
             <div className="flex flex-col h-full bg-neutral-950/20">
               {/* Bills Header */}
               <div className="p-6 border-b border-neutral-800 bg-neutral-900/40 flex items-center justify-between">
                 <div>
                    <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 italic">
                      <Shield size={16} className="text-blue-500" />
-                     Monitor Deck
+                     Council Workspace
                    </h3>
                    <p className="text-[10px] text-neutral-500 font-bold uppercase mt-1">Legislative & Policy Discussion</p>
                 </div>
@@ -108,7 +113,7 @@ export default function Groups() {
                 </div>
               </div>
 
-              {/* Monitor Deck Content */}
+              {/* Complaints Content */}
               <div className="flex-1 overflow-hidden grid grid-cols-[300px_1fr]">
                 {/* Bills List Sidebar */}
                 <div className="border-r border-neutral-800 overflow-y-auto custom-scrollbar p-4 space-y-3 bg-neutral-950/40">
@@ -196,7 +201,7 @@ export default function Groups() {
                                         await resolveBill(selectedBill.id, verdictInput);
                                         setIsResolvingBill(false);
                                         setVerdictInput('');
-                                        alert("BILL RESOLVED: Verdict archived in Monitoring Pillars.");
+                                        alert("BILL RESOLVED: Verdict archived in Council Workspace.");
                                       }}
                                       className="flex-1 py-2 bg-green-600 hover:bg-green-500 text-white text-[10px] font-black uppercase rounded-lg transition-all"
                                     >
@@ -389,47 +394,6 @@ export default function Groups() {
 
         {/* Sidebar Mini-Feeds / Fixed Columns Section */}
         <aside className="space-y-8">
-           {/* Monitor's Pillar */}
-           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden">
-               <div className="p-5 border-b border-neutral-800 bg-blue-600/5 flex items-center gap-2">
-                 <Shield size={16} className="text-blue-500" />
-                 <h3 className="text-xs font-black uppercase tracking-widest italic">Monitoring Pillars</h3>
-              </div>
-              <div className="p-5 space-y-4">
-                 <div className="space-y-4">
-                    <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-tighter italic">Pillar Verdicts</p>
-                    {monitoringPillars.length > 0 ? (
-                      monitoringPillars.slice(0, 5).map(p => {
-                        const author = users.find(u => u.id === p.issuedBy);
-                        return (
-                          <div key={p.id} className="p-4 bg-neutral-950 border border-neutral-800 rounded-2xl relative overflow-hidden group">
-                             <div className="absolute top-0 right-0 p-2 opacity-10">
-                                <Shield size={32} />
-                             </div>
-                             <div className="flex justify-between items-start mb-2">
-                                <span className="text-[9px] font-mono text-blue-500 font-bold">{p.caseNumber}</span>
-                                <span className="text-[8px] text-neutral-600">{new Date(p.timestamp).toLocaleDateString()}</span>
-                             </div>
-                             <h5 className="text-[10px] font-black text-neutral-200 uppercase tracking-tight mb-2 truncate">{p.title}</h5>
-                             <p className="text-[11px] text-blue-400 font-bold italic leading-tight">"{p.verdict}"</p>
-                             <div className="mt-3 flex items-center gap-2 pt-3 border-t border-neutral-800/50">
-                                <span className="text-[8px] text-neutral-500 uppercase font-black">Authored By:</span>
-                                <span className="text-[9px] text-neutral-400 font-bold italic">@{author?.username || 'admin'}</span>
-                             </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <p className="text-[10px] text-neutral-600 italic">Historical records clear.</p>
-                    )}
-                 </div>
-                 <div className="pt-4 border-t border-neutral-800">
-                    <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-tighter italic">New Rules</p>
-                    <p className="text-[10px] text-neutral-400 leading-relaxed mt-1">Rule #1: Debts must be settled within biological timelines.</p>
-                 </div>
-              </div>
-           </div>
-
            {/* Resolving Issues Column */}
            <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden">
               <div className="p-5 border-b border-neutral-800 bg-orange-600/5 flex items-center gap-2">
@@ -444,7 +408,7 @@ export default function Groups() {
                    >
                       <div className="absolute top-0 right-0 w-12 h-12 bg-orange-500/10 -mr-6 -mt-6 rotate-45" />
                       <p className="text-xs text-orange-200 leading-relaxed italic truncate">{c.description}</p>
-                      <p className="text-[10px] text-neutral-500 mt-2 font-black uppercase tracking-widest leading-relaxed">Refer specifically to Monitor Workspace for details.</p>
+                      <p className="text-[10px] text-neutral-500 mt-2 font-black uppercase tracking-widest leading-relaxed">Refer specifically to Council Workspace for details.</p>
                    </div>
                 ))}
                 {resolvingDeck.filter(c => c.status === 'under_investigation').length === 0 && (
@@ -453,33 +417,21 @@ export default function Groups() {
                </div>
            </div>
 
-           {/* Complaint Box */}
-           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden">
-              <div className="p-5 border-b border-neutral-800 bg-red-600/5 flex items-center gap-2">
-                 <Box size={16} className="text-red-500" />
-                 <h3 className="text-xs font-black uppercase tracking-widest italic">Black Box (Anonymous)</h3>
+           {/* Complaint Box Redirect Card */}
+           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-[0_0_20px_rgba(245,158,11,0.02)]">
+              <div className="p-5 border-b border-neutral-800 bg-amber-600/5 flex items-center gap-2">
+                 <Lock size={16} className="text-amber-500 animate-pulse" />
+                 <h3 className="text-xs font-black uppercase tracking-widest italic text-amber-500">Black Box Secured Link</h3>
               </div>
               <div className="p-5">
-                 <p className="text-[10px] text-neutral-500 mb-4 leading-relaxed">Direct line to High Admin and Monitors. Subject to absolute secrecy.</p>
-                 <textarea 
-                   placeholder="Submit encrypted complaint..."
-                   className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-neutral-300 focus:outline-none focus:border-red-500/50 h-24 mb-3 transition-all"
-                   onKeyPress={(e) => {
-                     if (e.key === 'Enter' && !e.shiftKey) {
-                       e.preventDefault();
-                       const val = e.currentTarget.value;
-                       if (val) {
-                          addComplaint(val);
-                          e.currentTarget.value = '';
-                          alert("Complaint filed anonymously.");
-                       }
-                     }
-                   }}
-                 />
-                 <div className="flex items-center justify-between text-[9px] text-neutral-600 font-bold uppercase">
-                    <span>Monitored encrypted</span>
-                    <Shield size={10} />
-                 </div>
+                 <p className="text-[10px] text-neutral-400 mb-4 leading-relaxed">Direct encrypted anonymous submission uplink to system monitors without identity packet tags.</p>
+                 <button 
+                   onClick={() => setActiveGroup('blackbox')}
+                   className="w-full bg-amber-600 hover:bg-amber-500 text-white font-mono text-[10px] uppercase font-bold tracking-widest py-3 rounded-xl transition-all shadow-md shadow-amber-600/10 cursor-pointer text-center flex items-center justify-center gap-2"
+                   id="btn-sidebar-blackbox-redirect"
+                 >
+                   <EyeOff size={12} /> Access Black Box
+                 </button>
               </div>
            </div>
         </aside>
@@ -509,7 +461,7 @@ export default function Groups() {
                 <div className="p-8 border border-dashed border-neutral-800 rounded-3xl flex flex-col items-center justify-center text-center bg-neutral-950/20">
                    <Shield size={32} className="text-neutral-800 mb-4 opacity-40" />
                    <p className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] italic">Administrative Directive</p>
-                   <p className="text-[10px] italic mt-2 text-neutral-600 max-w-[300px]">Strategic bill filing and technical validations are strictly managed via the Monitor Workspace.</p>
+                   <p className="text-[10px] italic mt-2 text-neutral-600 max-w-[300px]">Strategic bill filing and technical validations are strictly managed via the Council Workspace.</p>
                 </div>
              </div>
           </div>

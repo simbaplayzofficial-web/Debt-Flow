@@ -66,23 +66,30 @@ export type UserRole = 'user' | 'admin' | 'add_admin' | 'monitor';
 
 export type UserProfile = {
   id: string;
+  uid: string;
   username: string;
+  email: string;
   role: UserRole;
   requestedRole?: UserRole | null;
   status: 'active' | 'restricted' | 'suspended';
   warningCount: number;
+  warnings: number;
   integrityScore: number;
+  integrity: number;
   integrityLevel: number;
   debtOwed: number;
   debtToMe: number;
   ratingAverage: number;
   ratingCount: number;
+  rating: number;
   totalLendingTransactions: number;
   isPermanentlyRemoved: boolean;
   restrictedUntil?: string;
   communityServicesNeeded: number;
   isCommunityServiceParticipant?: boolean;
+  specialOpsAccess?: boolean;
   createdAt?: any;
+  lastLogin?: any;
 };
 
 export type RoleRequest = {
@@ -216,18 +223,20 @@ export type ResolvingCase = {
   timestamp: string;
 };
 
-export type MonitoringPillar = {
+export type AnonymousComplaint = {
   id: string;
-  billId?: string;
-  caseId?: string;
-  title: string;
-  verdict: string;
-  caseNumber: string;
-  issuedBy: string;
-  timestamp: string;
+  message: string;
+  category?: string;
+  createdAt: string; // ISO String
+  status: 'pending' | 'under_review' | 'resolved' | 'archived';
+  source: 'groups_blackbox' | 'profile_blackbox' | string;
+  assignedTo?: string | null;  // UID of assigned monitor
+  assignedMonitorId?: string | null;
+  assignedMonitorName?: string | null;
+  anonymousThreadId?: string | null;
+  complainantUid?: string | null;
+  internalNotes?: string;
 };
-
-export type Verdict = MonitoringPillar; // For backward compatibility if needed
 
 export type GroupId = 'studying' | 'monitoring' | 'chatting' | 'resolving' | 'complaints';
 
@@ -382,8 +391,7 @@ type State = {
   complaints: Complaint[];
   roleRequests: RoleRequest[];
   resolvingDeck: ResolvingCase[];
-  monitoringPillars: MonitoringPillar[];
-  justiceNexus: MonitoringPillar[]; // Deprecated, but keeping for listener
+  anonymousComplaints: AnonymousComplaint[];
   systemStatus: SystemStatus | null;
   activityLogs: ActivityLog[];
   debtAdjustments: DebtAdjustment[];
@@ -400,6 +408,7 @@ type State = {
   currentLeaderboard: Leaderboard | null;
   hasSpecialAccess: boolean;
   isSpyOwner: boolean;
+  specialOpsMode: boolean;
   groupPosts: Record<GroupId, GroupPost[]>;
   rolesConfig: RoleConfig;
   bills: Bill[];
@@ -426,11 +435,8 @@ type State = {
   postAnnouncement: (title: string, content: string, section: AnnouncementSection) => Promise<void>;
   deleteAnnouncement: (id: string) => Promise<void>;
   issueWarning: (username: string, level: number, reason: string) => Promise<void>;
-  postVerdict: (caseId: string, verdictText: string, actionTaken: string) => Promise<void>;
   resolveBill: (billId: string, verdictText: string) => Promise<void>;
-  migrateOldVerdicts: () => Promise<void>;
   createResolvingCase: (description: string, involvedUsers: string[]) => Promise<void>;
-  revertVerdict: (caseId: string) => Promise<void>;
   deleteUser: (userId: string) => Promise<void>;
   updateUsername: (newUsername: string) => Promise<void>;
   updatePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -440,8 +446,12 @@ type State = {
   updateRolesConfig: (admins: string[], monitors: string[]) => Promise<void>;
   updateUserRole: (userId: string, newRole: string) => Promise<void>;
   updateRolePermissions: (roleId: string, permissions: string[]) => Promise<void>;
+  approveDebtAdjustment: (adjId: string) => Promise<void>;
+  rejectDebtAdjustment: (adjId: string) => Promise<void>;
  
   // Special Ops
+  setSpecialOpsMode: (val: boolean) => void;
+  updateSpecialOpsAccess: (userId: string, access: boolean) => Promise<void>;
   addInternalNote: (caseId: string, content: string) => Promise<void>;
   recruitUser: (userId: string, task: string, reward: number, durationHours: number) => Promise<void>;
   revokeRecruitment: (recruitmentId: string) => Promise<void>;
@@ -454,7 +464,7 @@ type State = {
   removeFromSpyNetwork: (memberId: string) => Promise<void>;
   toggleSpyNetworkActive: (memberId: string, active: boolean) => Promise<void>;
  
-  // Monitor Deck Bills
+  // Complaints Bills
   createBill: (title: string, category: string, description: string, priority: string) => Promise<void>;
   updateBill: (billId: string, title: string, description: string) => Promise<void>;
   postBillComment: (billId: string, message: string) => Promise<void>;
@@ -463,9 +473,15 @@ type State = {
   resetSystem: () => Promise<void>;
   recalculateLeaderboard: () => Promise<void>;
   
-  // Complaints
-  addComplaint: (content: string) => Promise<void>;
-  reviewComplaint: (complaintId: string) => Promise<void>;
+  // Complaints (Black Box)
+  submitAnonymousComplaint: (message: string, category: string, source: string) => Promise<void>;
+  updateAnonymousComplaintStatus: (id: string, status: 'pending' | 'under_review' | 'resolved' | 'archived') => Promise<void>;
+  assignAnonymousComplaint: (id: string, monitorId: string | null) => Promise<void>;
+  updateAnonymousComplaintNotes: (id: string, notes: string) => Promise<void>;
+  deleteAnonymousComplaint: (id: string) => Promise<void>;
+  claimAnonymousComplaint: (id: string) => Promise<void>;
+  openAnonymousLine: (id: string) => Promise<void>;
+  sendAnonymousChatMessage: (threadId: string, message: string, senderType: 'monitor' | 'complainant') => Promise<void>;
   
   // Role Transition
   requestRole: (role: UserRole) => Promise<void>;
@@ -493,8 +509,7 @@ export const useStore = create<State>()((set, get) => ({
   complaints: [],
   roleRequests: [],
   resolvingDeck: [],
-  monitoringPillars: [],
-  justiceNexus: [],
+  anonymousComplaints: [],
   systemStatus: null,
   activityLogs: [],
   debtAdjustments: [],
@@ -511,6 +526,7 @@ export const useStore = create<State>()((set, get) => ({
   currentLeaderboard: null,
   hasSpecialAccess: false,
   isSpyOwner: false,
+  specialOpsMode: false,
   bills: [],
   billComments: [],
   billStaffComments: [],
@@ -576,18 +592,58 @@ export const useStore = create<State>()((set, get) => ({
       return false;
     }
     
-    const input = usernameOrEmail.trim().toLowerCase();
+    const input = usernameOrEmail.trim();
+    const isSpecialRequest = input.endsWith('/special') || input.includes('/special');
+    const cleanUsername = isSpecialRequest ? input.replace('/special', '') : input;
     const pass = password.trim();
 
-    // Migration support: if input contains @, use it as is. Otherwise, append domain.
-    const email = input.includes('@') ? input : `${input}@debtflow.com`;
+    // Convert username to email format. If it has @, use as is, otherwise append @debtflow.com
+    const email = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@debtflow.com`;
+    
+    console.log(`[LOGIN_START] Attempting login for username: ${cleanUsername} (using email: ${email}) (specialOps: ${isSpecialRequest})`);
 
     try {
-      await signInWithEmailAndPassword(auth, email, pass);
+      const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+      const user = userCredential.user;
+      console.log(`[LOGIN_SUCCESS] Auth successful for UID: ${user.uid}`);
+      
+      if (isSpecialRequest) {
+        const uDoc = await getDoc(doc(db, 'users', user.uid));
+        if (!uDoc.exists() || uDoc.data()?.specialOpsAccess !== true) {
+          await signOut(auth);
+          set({ authError: "Special Ops clearance denied." });
+          return false;
+        }
+        set({ specialOpsMode: true });
+      } else {
+        set({ specialOpsMode: false });
+      }
+
+      const docRef = doc(db, 'users', user.uid);
+      await updateDoc(docRef, {
+        lastLogin: serverTimestamp()
+      }).then(() => {
+        console.log(`[LOGIN_FIRESTORE] Updated lastLogin timestamp in profile context for UID: ${user.uid}`);
+      }).catch(err => {
+        console.warn(`[LOGIN_FIRESTORE_WARN] Could not update lastLogin in Firestore (could be newly created or missing doc):`, err.message);
+      });
+
       return true;
     } catch (error: any) {
-      console.error("Login Error:", error);
-      set({ authError: "Invalid username or password" });
+      console.error("[LOGIN_FAILURE] Error during authentication:", error);
+      let message = "Invalid username or password";
+      
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        message = "Invalid username or password";
+      } else if (error.code === 'auth/too-many-requests') {
+        message = "Too many failed login attempts. Please try again later.";
+      } else if (error.code === 'auth/network-request-failed') {
+        message = "Network connection failed. Please check your connectivity.";
+      } else if (error.message) {
+        message = error.message;
+      }
+      
+      set({ authError: message });
       return false;
     }
   },
@@ -595,89 +651,112 @@ export const useStore = create<State>()((set, get) => ({
   signUp: async (username, _unusedEmail, password, requestedRole) => {
     const { logActivity } = get();
     set({ authError: null });
-    const trimmedUsername = username.trim().toLowerCase();
+    const trimmedUsername = username.trim();
+
+    console.log(`[SIGNUP_START] Triggering signup for username: ${trimmedUsername}`);
 
     if (!trimmedUsername || !password) {
       set({ authError: "All fields are required." });
       return false;
     }
 
-    // Validation: lowercase, numbers, underscores, no spaces, no @
-    const usernameRegex = /^[a-z0-9_]{3,30}$/;
+    // Validation: alphanumeric, underscores allowed, length 3-20
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
     if (!usernameRegex.test(trimmedUsername)) {
-      set({ authError: "Username must be 3-30 characters, lowercase letters, numbers, or underscores only." });
+      set({ authError: "Username must be 3-20 characters, containing only letters, numbers, or underscores." });
+      return false;
+    }
+
+    if (password.length < 6) {
+      set({ authError: "Password must be at least 6 characters." });
       return false;
     }
 
     const derivedEmail = `${trimmedUsername}@debtflow.com`;
+    console.log(`[SIGNUP] Generated email address internally: ${derivedEmail}`);
 
     try {
-      // 1. Explicit Uniqueness Check in Firestore for Username
+      // 1. Explicit Check in Firestore for Case-Insensitive Username Uniqueness
       const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('username', '==', trimmedUsername));
-      const querySnapshot = await getDocs(q);
+      const q1 = query(usersRef, where('username', '==', trimmedUsername));
+      const q2 = query(usersRef, where('username', '==', trimmedUsername.toLowerCase()));
+      const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
       
-      if (!querySnapshot.empty) {
-        set({ authError: "Username already taken" });
+      if (!snap1.empty || !snap2.empty) {
+        console.warn(`[SIGNUP_WARN] Duplicate username found. Registration aborted for: ${trimmedUsername}`);
+        set({ authError: "Username already taken." });
         return false;
       }
 
       // 2. Create Auth Account
+      console.log(`[SIGNUP_AUTH] Creating Auth user in Firebase Authentication: ${derivedEmail}`);
       const { user } = await createUserWithEmailAndPassword(auth, derivedEmail, password);
+      console.log(`[SIGNUP_AUTH_SUCCESS] Auth successful: user.uid is ${user.uid}`);
       
-      // Force token refresh to include potential custom claims (if configured)
+      // Force token refresh
       await user.getIdToken(true);
 
       // 3. Store Profile
       const { serverTimestamp } = await import('firebase/firestore');
       
-      // INTERCEPT HIGH-PRIVILEGE REQUESTS
-      const initialRole: UserRole = 'user';
-      const actualRequestedRole = requestedRole as UserRole | null;
+      // Map roles
+      let initialRole: UserRole = 'user';
+      if (requestedRole === 'monitor') {
+        initialRole = 'monitor';
+      } else if (requestedRole === 'admin') {
+        initialRole = 'admin';
+      }
       
       const profile: UserProfile = {
         id: user.uid,
+        uid: user.uid,
         username: trimmedUsername,
+        email: derivedEmail,
         role: initialRole, 
-        requestedRole: actualRequestedRole,
+        requestedRole: null,
         status: 'active',
         warningCount: 0,
+        warnings: 0,
         integrityScore: 100,
+        integrity: 100,
         integrityLevel: 0,
         debtOwed: 0,
         debtToMe: 0,
-        ratingAverage: 0,
+        ratingAverage: 5,
         ratingCount: 0,
+        rating: 5,
         totalLendingTransactions: 0,
         isPermanentlyRemoved: false,
         communityServicesNeeded: 0,
         isCommunityServiceParticipant: false,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        lastLogin: serverTimestamp()
       };
       
+      console.log(`[SIGNUP_FIRESTORE] Writing user document to Firestore for UID ${user.uid}:`, profile);
       await setDoc(doc(db, 'users', user.uid), profile);
+      console.log(`[SIGNUP_FIRESTORE_SUCCESS] Document creation successful in Firestore.`);
 
-      // Create Request Entry if needed
-      if (actualRequestedRole && (actualRequestedRole === 'admin' || actualRequestedRole === 'monitor')) {
-        await setDoc(doc(db, 'roleRequests', uuidv4()), {
-          id: uuidv4(),
-          userId: user.uid,
-          username: trimmedUsername,
-          requestedRole: actualRequestedRole,
-          status: 'pending',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      await logActivity('SIGNUP', `New account created: @${trimmedUsername}`, user.uid, trimmedUsername, 'Auth');
+      await logActivity('SIGNUP', `New account created: @${trimmedUsername} as ${initialRole}`, user.uid, trimmedUsername, 'Auth');
       return true;
     } catch (error: any) {
+      console.error("[SIGNUP_FAILURE] Error during account registration flow:", error);
       let message = "Account creation failed";
+      
       if (error.code === 'auth/email-already-in-use') {
-        message = "Account already exists";
+        message = "Username already exists.";
       } else if (error.code === 'auth/weak-password') {
-        message = "Password is too weak";
+        message = "Password must be at least 6 characters and sufficiently secure.";
+      } else if (error.code === 'auth/invalid-email') {
+        message = "Invalid email format.";
+      } else if (error.code === 'auth/network-request-failed') {
+        message = "Network connection failed. Please check your connectivity.";
+      } else if (error.code === 'permission-denied' || error.message?.includes('permission-denied')) {
+        message = "Security permissions denied profile creation. Checking system security configuration.";
+      } else if (error.message) {
+        message = error.message;
       }
+      
       set({ authError: message });
       return false;
     }
@@ -689,7 +768,7 @@ export const useStore = create<State>()((set, get) => ({
       await logActivity('LOGOUT', `User @${currentUser.username} logged out`, undefined, undefined, 'Auth');
     }
     await signOut(auth);
-    set({ currentUser: null });
+    set({ currentUser: null, specialOpsMode: false });
   },
 
   addTransaction: async (askerId, pages, isCommunityService) => {
@@ -922,7 +1001,7 @@ export const useStore = create<State>()((set, get) => ({
     
     const collectionsToReset = [
       'transactions', 'debts', 'announcements', 'resolvingDeck', 
-      'monitoringPillars', 'forgivenessLogs', 'leaderboard',
+      'anonymousComplaints', 'forgivenessLogs', 'leaderboard',
       'debtAdjustments', 'activityLogs', 'users'
     ];
 
@@ -1060,38 +1139,6 @@ export const useStore = create<State>()((set, get) => ({
     await logActivity('WARNING_RULES_UPDATED', { ruleCount: rules.length }, undefined, undefined, 'Monitor Workspace');
   },
 
-  postVerdict: async (caseId, verdictText, actionTaken) => {
-    const { currentUser, logActivity, resolvingDeck } = get();
-    if (!currentUser || currentUser.role !== 'admin') return;
-
-    const caseToResolve = resolvingDeck.find(c => c.id === caseId);
-    if (!caseToResolve) return;
-
-    const batch = writeBatch(db);
-    const pillarId = uuidv4();
-    const caseNumber = `CASE-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-
-    // Create monitoring pillar
-    batch.set(doc(db, 'monitoringPillars', pillarId), {
-      id: pillarId,
-      caseId: caseId,
-      title: `Dispute: ${caseToResolve.description.substring(0, 30)}...`,
-      verdict: verdictText,
-      caseNumber,
-      issuedBy: currentUser.id,
-      timestamp: new Date().toISOString()
-    });
-
-    // Update original case
-    batch.update(doc(db, 'resolvingDeck', caseId), { 
-      status: 'resolved',
-      resolvedAt: new Date().toISOString()
-    });
-
-    await batch.commit();
-    await logActivity('POST_VERDICT', { caseId, pillarId }, undefined, undefined, 'Monitor Workspace');
-  },
-
   resolveBill: async (billId, verdictText) => {
     const { currentUser, logActivity, bills } = get();
     if (!currentUser || currentUser.role !== 'admin') return;
@@ -1099,56 +1146,14 @@ export const useStore = create<State>()((set, get) => ({
     const bill = bills.find(b => b.id === billId);
     if (!bill) return;
 
-    const batch = writeBatch(db);
-    const pillarId = uuidv4();
-    const caseNumber = `BILL-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-
-    // Create monitoring pillar
-    batch.set(doc(db, 'monitoringPillars', pillarId), {
-      id: pillarId,
-      billId: billId,
-      title: bill.title,
-      verdict: verdictText,
-      caseNumber,
-      issuedBy: currentUser.id,
-      timestamp: new Date().toISOString()
-    });
-
-    // Update original bill
-    batch.update(doc(db, 'bills', billId), { 
-      status: 'resolved',
-      verdict: verdictText
-    });
-
-    await batch.commit();
-    await logActivity('RESOLVE_BILL', { billId, pillarId }, undefined, undefined, 'Monitor Workspace');
-  },
-
-  migrateOldVerdicts: async () => {
-    const { currentUser, resolvingDeck } = get();
-    if (!currentUser || currentUser.role !== 'admin') return;
-
-    // Direct migration: Find resolved cases that haven't been archived in pillars yet
-    const resolvedCases = resolvingDeck.filter(c => c.status === 'resolved' && !c.resolvedAt);
-    
-    for (const c of resolvedCases) {
-      const pillarId = uuidv4();
-      const caseNumber = `LEGACY-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-      
-      const batch = writeBatch(db);
-      batch.set(doc(db, 'monitoringPillars', pillarId), {
-        id: pillarId,
-        caseId: c.id,
-        title: `Migrated: ${c.description.substring(0, 40)}...`,
-        verdict: "Legacy verdict migration required detailed review.",
-        caseNumber,
-        issuedBy: 'SYSTEM',
-        timestamp: new Date().toISOString()
+    try {
+      await updateDoc(doc(db, 'bills', billId), { 
+        status: 'resolved',
+        verdict: verdictText
       });
-      batch.update(doc(db, 'resolvingDeck', c.id), {
-        resolvedAt: new Date().toISOString()
-      });
-      await batch.commit();
+      await logActivity('RESOLVE_BILL', { billId }, undefined, undefined, 'Monitor Workspace');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `bills/${billId}`);
     }
   },
 
@@ -1226,21 +1231,6 @@ export const useStore = create<State>()((set, get) => ({
     } catch (e) {
       console.error("Leaderboard Recalculation Failed:", e);
     }
-  },
-
-  revertVerdict: async (caseId) => {
-    const { currentUser, logActivity } = get();
-    if (!currentUser || currentUser.role !== 'admin') throw new Error("UNAUTHORIZED");
-
-    const batch = writeBatch(db);
-    batch.delete(doc(db, 'justiceNexus', caseId));
-    batch.update(doc(db, 'resolvingDeck', caseId), { 
-      status: 'under_investigation',
-      resolvedAt: deleteField()
-    });
-
-    await batch.commit();
-    await logActivity('VERDICT_REVERTED', { caseId }, undefined, undefined, 'Monitor Workspace');
   },
 
   createResolvingCase: async (description, involvedUsers) => {
@@ -1354,29 +1344,133 @@ export const useStore = create<State>()((set, get) => ({
     await get().logActivity('BILL_STAFF_COMMENT', { billId, preview: message.substring(0, 30) }, undefined, undefined, 'Monitor Workspace');
   },
 
-  addComplaint: async (content) => {
+  submitAnonymousComplaint: async (message, category, source) => {
     const id = uuidv4();
-    await setDoc(doc(db, 'complaints', id), {
-      id,
-      content,
-      timestamp: new Date().toISOString(),
-      reviewedBy: []
-    });
-    // Complaints are anonymous, no user activity log linked to author
+    const complainantUid = auth.currentUser?.uid || null;
+    try {
+      await setDoc(doc(db, 'anonymousComplaints', id), {
+        id,
+        message,
+        category: category || "General",
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+        source,
+        assignedTo: null,
+        assignedMonitorId: null,
+        assignedMonitorName: null,
+        anonymousThreadId: null,
+        complainantUid,
+        internalNotes: ''
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `anonymousComplaints/${id}`);
+    }
   },
 
-  reviewComplaint: async (complaintId) => {
+  updateAnonymousComplaintStatus: async (id, status) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) return;
-    
-    const complaint = get().complaints.find(c => c.id === complaintId);
-    if (!complaint) return;
-    
-    if (!complaint.reviewedBy.includes(currentUser.id)) {
-      await updateDoc(doc(db, 'complaints', complaintId), {
-        reviewedBy: [...complaint.reviewedBy, currentUser.id]
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+      throw new Error("UNAUTHORIZED");
+    }
+    try {
+      await updateDoc(doc(db, 'anonymousComplaints', id), { status });
+      await logActivity('UPDATE_COMPLAINT_STATUS', { id, status }, undefined, undefined, 'Complaints Workspace');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `anonymousComplaints/${id}`);
+    }
+  },
+
+  assignAnonymousComplaint: async (id, monitorId) => {
+    const { currentUser, logActivity, users } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+      throw new Error("UNAUTHORIZED");
+    }
+    try {
+      const monitorUser = users.find(u => u.id === monitorId);
+      const monitorName = monitorUser ? `@${monitorUser.username}` : null;
+      await updateDoc(doc(db, 'anonymousComplaints', id), { 
+        assignedTo: monitorId,
+        assignedMonitorId: monitorId,
+        assignedMonitorName: monitorName
       });
-      await logActivity('REVIEW_COMPLAINT', { complaintId }, undefined, undefined, 'Monitor Workspace');
+      await logActivity('ASSIGN_COMPLAINT', { id, assignedTo: monitorId }, undefined, undefined, 'Complaints Workspace');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `anonymousComplaints/${id}`);
+    }
+  },
+
+  updateAnonymousComplaintNotes: async (id, notes) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+      throw new Error("UNAUTHORIZED");
+    }
+    try {
+      await updateDoc(doc(db, 'anonymousComplaints', id), { internalNotes: notes });
+      await logActivity('UPDATE_COMPLAINT_NOTES', { id }, undefined, undefined, 'Complaints Workspace');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `anonymousComplaints/${id}`);
+    }
+  },
+
+  deleteAnonymousComplaint: async (id) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+      throw new Error("UNAUTHORIZED");
+    }
+    try {
+      await deleteDoc(doc(db, 'anonymousComplaints', id));
+      await logActivity('DELETE_COMPLAINT', { id }, undefined, undefined, 'Complaints Workspace');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `anonymousComplaints/${id}`);
+    }
+  },
+
+  claimAnonymousComplaint: async (id) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+      throw new Error("UNAUTHORIZED");
+    }
+    try {
+      const monitorId = currentUser.id;
+      const monitorName = `@${currentUser.username}`;
+      await updateDoc(doc(db, 'anonymousComplaints', id), {
+        assignedTo: monitorId,
+        assignedMonitorId: monitorId,
+        assignedMonitorName: monitorName
+      });
+      await logActivity('CLAIM_COMPLAINT', { id }, undefined, undefined, 'Complaints Workspace');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `anonymousComplaints/${id}`);
+    }
+  },
+
+  openAnonymousLine: async (id) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+      throw new Error("UNAUTHORIZED");
+    }
+    try {
+      await updateDoc(doc(db, 'anonymousComplaints', id), {
+        anonymousThreadId: id
+      });
+      await logActivity('OPEN_ANONYMOUS_LINE', { id }, undefined, undefined, 'Complaints Workspace');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `anonymousComplaints/${id}`);
+    }
+  },
+
+  sendAnonymousChatMessage: async (threadId, message, senderType) => {
+    const id = uuidv4();
+    try {
+      await setDoc(doc(db, 'anonymousComplaintChats', id), {
+        id,
+        threadId,
+        senderType,
+        message,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `anonymousComplaintChats/${id}`);
     }
   },
 
@@ -1555,6 +1649,97 @@ export const useStore = create<State>()((set, get) => ({
     await logActivity('PERMISSIONS_UPDATED', { roleId, permissions }, undefined, undefined, 'Monitor Workspace');
   },
 
+  approveDebtAdjustment: async (adjId) => {
+    const { currentUser, users, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) {
+      throw new Error("UNAUTHORIZED: Monitor or Admin access required.");
+    }
+
+    const adj = get().debtAdjustments.find(a => a.id === adjId);
+    if (!adj || adj.status !== 'REQUESTED') {
+      throw new Error("Active requested adjustment not found");
+    }
+
+    const lenderId = adj.lenderId;
+    const borrowerId = adj.borrowerId;
+    const amount = adj.amount;
+
+    const borrower = users.find(u => u.id === borrowerId);
+    if (!borrower) throw new Error("Borrower details not found");
+
+    const u1 = lenderId < borrowerId ? lenderId : borrowerId;
+    const u2 = lenderId < borrowerId ? borrowerId : lenderId;
+    const debtId = `${u1}_${u2}`;
+
+    const debtRef = doc(db, 'debts', debtId);
+    const debtSnap = await getDoc(debtRef);
+    if (!debtSnap.exists()) throw new Error("Debt ledger entry not found");
+
+    const currentBalance = (debtSnap.data() as any).netBalance;
+    const balanceChange = lenderId === u1 ? -amount : amount;
+
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'debtAdjustments', adjId), {
+        status: 'APPROVED',
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: currentUser.id
+      });
+
+      batch.update(debtRef, {
+        netBalance: currentBalance + balanceChange,
+        updatedAt: new Date().toISOString()
+      });
+
+      batch.update(doc(db, 'users', lenderId), {
+        debtToMe: Math.max(0, (get().users.find(u => u.id === lenderId)?.debtToMe || 0) - amount)
+      });
+      batch.update(doc(db, 'users', borrowerId), {
+        debtOwed: Math.max(0, borrower.debtOwed - amount)
+      });
+
+      const logId = uuidv4();
+      batch.set(doc(db, 'forgivenessLogs', logId), {
+        id: logId,
+        forgiverId: lenderId,
+        borrowerId: borrowerId,
+        amount: amount,
+        timestamp: new Date().toISOString(),
+        source: 'Adjustment Approval'
+      });
+
+      await batch.commit();
+      await logActivity('DEBT_FORGIVENESS_APPROVED', { adjId, borrowerId, amount }, undefined, undefined, 'Monitor Workspace');
+    } catch (error: any) {
+      console.error("APPROVE_DEBT_ADJUSTMENT_FAILED:", error);
+      throw error;
+    }
+  },
+
+  rejectDebtAdjustment: async (adjId) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) {
+      throw new Error("UNAUTHORIZED: Monitor or Admin access required.");
+    }
+
+    const adj = get().debtAdjustments.find(a => a.id === adjId);
+    if (!adj || adj.status !== 'REQUESTED') {
+      throw new Error("Active requested adjustment not found");
+    }
+
+    try {
+      await updateDoc(doc(db, 'debtAdjustments', adjId), {
+        status: 'REJECTED',
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: currentUser.id
+      });
+      await logActivity('DEBT_FORGIVENESS_REJECTED', { adjId }, undefined, undefined, 'Monitor Workspace');
+    } catch (error: any) {
+      console.error("REJECT_DEBT_ADJUSTMENT_FAILED:", error);
+      throw error;
+    }
+  },
+
   logSpecialOps: async (action, details) => {
     const { currentUser, hasSpecialAccess } = get();
     if (!currentUser || !hasSpecialAccess) return;
@@ -1613,6 +1798,32 @@ export const useStore = create<State>()((set, get) => ({
     
     await updateDoc(doc(db, 'spyNetwork', memberId), { active });
     await logSpecialOps('MEMBER_STATUS_TOGGLED', { memberId, active });
+  },
+
+  setSpecialOpsMode: (val) => {
+    set({ specialOpsMode: val });
+  },
+
+  updateSpecialOpsAccess: async (userId, access) => {
+    const { currentUser, logActivity, users } = get();
+    if (!currentUser || currentUser.role !== 'admin') throw new Error("UNAUTHORIZED: Admin access required.");
+
+    const target = users.find(u => u.id === userId);
+    if (!target) throw new Error("User not found.");
+
+    try {
+      await updateDoc(doc(db, 'users', userId), { specialOpsAccess: access });
+      await logActivity(
+        access ? 'SPECIAL_OPS_GRANTED' : 'SPECIAL_OPS_REVOKED',
+        { target: target.username },
+        undefined,
+        undefined,
+        'Monitor Workspace'
+      );
+    } catch (error) {
+      console.error("SPECIAL_OPS_ACCESS_UPDATE_ERROR:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+    }
   },
 
   addInternalNote: async (caseId, content) => {
@@ -1927,9 +2138,7 @@ onAuthStateChanged(auth, async (firebaseUser) => {
 
               mainUnsubscribes.push(
                 onSnapshot(doc(db, 'spyNetwork', firebaseUser.uid), (spySnap) => {
-                  const spyData = spySnap.data() as SpyOpsMember | undefined;
-                  const isActiveMember = spySnap.exists() && spyData?.active === true;
-                  const hasAccess = isOwner || isActiveMember;
+                  const hasAccess = data?.specialOpsAccess === true;
                   useStore.setState({ hasSpecialAccess: hasAccess });
 
                   if (hasAccess) {
@@ -1983,6 +2192,9 @@ onAuthStateChanged(auth, async (firebaseUser) => {
                     onSnapshot(query(collection(db, 'complaints'), orderBy('timestamp', 'desc')), (snapshot) => {
                       useStore.setState({ complaints: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Complaint)) });
                     }, (err) => console.warn("Staff Listener - Complaints Access Denied:", err.message)),
+                    onSnapshot(query(collection(db, 'anonymousComplaints'), orderBy('createdAt', 'desc')), (snapshot) => {
+                      useStore.setState({ anonymousComplaints: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AnonymousComplaint)) });
+                    }, (err) => console.warn("Staff Listener - AnonymousComplaints Access Denied:", err.message)),
                     onSnapshot(query(collection(db, 'groups', 'monitoring', 'posts'), orderBy('timestamp', 'desc'), limit(50)), (snapshot) => {
                       const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GroupPost));
                       useStore.setState(state => ({ groupPosts: { ...state.groupPosts, monitoring: posts } }));
@@ -1992,14 +2204,17 @@ onAuthStateChanged(auth, async (firebaseUser) => {
                     }, (err) => console.warn("Staff Listener - Debt Adjustments Access Denied:", err.message))
                   );
                 } else {
-                  // Standard users only see their own debts and rewards
+                  // Standard users only see their own debts, rewards, and anonymous complaints
                   roleUnsubscribes.push(
                     onSnapshot(query(collection(db, 'debts'), or(where('user1Id', '==', firebaseUser.uid), where('user2Id', '==', firebaseUser.uid))), (snapshot) => {
                       useStore.setState({ debts: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as NetDebt)) });
                     }, errorHandler('Debts-Personal')),
                     onSnapshot(query(collection(db, 'rewards'), where('userId', '==', firebaseUser.uid)), (snapshot) => {
                        useStore.setState({ rewards: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Reward)) });
-                    }, errorHandler('Rewards-Personal'))
+                    }, errorHandler('Rewards-Personal')),
+                    onSnapshot(query(collection(db, 'anonymousComplaints'), where('complainantUid', '==', firebaseUser.uid)), (snapshot) => {
+                      useStore.setState({ anonymousComplaints: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AnonymousComplaint)) });
+                    }, (err) => console.warn("User Listener - AnonymousComplaints Denied:", err.message))
                   );
                 }
 
@@ -2018,23 +2233,32 @@ onAuthStateChanged(auth, async (firebaseUser) => {
               const bootstrapAdmins = ['patty@debtflow.com', 'chiti@debtflow.com', 'simbaplayzofficial@gmail.com', 'simba@debtflow.com'];
               const isBootstrapAdmin = bootstrapAdmins.includes(email);
               
+              const { serverTimestamp } = await import('firebase/firestore');
+              
               const profile: UserProfile = {
                 id: firebaseUser.uid,
+                uid: firebaseUser.uid,
                 username: usernameFromEmail,
+                email: email,
                 role: isBootstrapAdmin ? 'admin' : 'user',
                 requestedRole: null,
                 status: 'active',
                 warningCount: 0,
+                warnings: 0,
                 integrityScore: 100,
+                integrity: 100,
                 integrityLevel: 0,
                 debtOwed: 0,
                 debtToMe: 0,
-                ratingAverage: 0,
+                ratingAverage: 5,
                 ratingCount: 0,
+                rating: 5,
                 totalLendingTransactions: 0,
                 isPermanentlyRemoved: false,
                 communityServicesNeeded: 0,
-                isCommunityServiceParticipant: false
+                isCommunityServiceParticipant: false,
+                createdAt: serverTimestamp(),
+                lastLogin: serverTimestamp()
               };
               await setDoc(docRef, profile);
             }
@@ -2068,10 +2292,7 @@ onAuthStateChanged(auth, async (firebaseUser) => {
         onSnapshot(query(collection(db, 'resolvingDeck'), orderBy('timestamp', 'desc')), (snapshot) => {
           useStore.setState({ resolvingDeck: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ResolvingCase)) });
         }, errorHandler('ResolvingDeck')),
-        onSnapshot(query(collection(db, 'monitoringPillars'), orderBy('timestamp', 'desc')), (snapshot) => {
-          const monitoringPillars = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MonitoringPillar));
-          useStore.setState({ monitoringPillars, justiceNexus: monitoringPillars });
-        }, errorHandler('MonitoringPillars')),
+
         onSnapshot(doc(db, 'systemStatus', 'current'), (snapshot) => {
           if (snapshot.exists()) useStore.setState({ systemStatus: snapshot.data() as SystemStatus });
         }, errorHandler('SystemStatus')),

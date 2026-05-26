@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 async function startServer() {
   const app = express();
@@ -14,127 +14,85 @@ async function startServer() {
   const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
   
   if (apiKey) {
-    console.log("AI SYSTEM: Key detected (prefix: " + apiKey.substring(0, 4) + "****)");
+    console.log("AI SYSTEM [Modern]: Key detected (prefix: " + apiKey.substring(0, 4) + "****)");
   } else {
-    console.warn("AI WARNING: No GEMINI_API_KEY or VITE_GEMINI_API_KEY found in process.env");
+    console.warn("AI WARNING [Modern]: No GEMINI_API_KEY or VITE_GEMINI_API_KEY found in process.env");
   }
 
-  const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
-
-  // Startup Validation
-  const validateAI = async () => {
-    if (!genAI) return;
-    
-    // We try gemini-2.0-flash which often requires v1beta
-    const testModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }, { apiVersion: "v1beta" });
-    try {
-      await testModel.generateContent("Hello");
-      console.log("AI ONLINE: gemini-2.0-flash (v1beta) verified.");
-    } catch (err: any) {
-      console.warn("AI WARNING (gemini-2.0-flash):", err.message);
-      try {
-        const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: "v1beta" });
-        await fallbackModel.generateContent("Hello");
-        console.log("AI ONLINE: fallback gemini-1.5-flash (v1beta) verified.");
-      } catch (err2: any) {
-        console.error("CRITICAL AI FAILURE: All model nodes offline.", err2.message);
+  const ai = apiKey ? new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
       }
     }
-  };
-  validateAI();
+  }) : null;
 
   // AI Proxy Route
   app.post('/api/chatterbox', async (req, res) => {
-    const { messages, context, userText, deepResearch, responseMode } = req.body;
+    const { messages, userText } = req.body;
 
-    if (!genAI) {
+    if (!ai) {
       return res.status(500).json({ 
         error: "AI Config Error", 
-        details: "Chatterbox AI model configuration failed. Please verify GEMINI_API_KEY in the platform secrets." 
+        details: "Chatterbox temporarily unavailable." 
       });
     }
 
     try {
-      const modeInstruction = 
-        responseMode === 'Quick Summary' ? "Mode: QUICK SUMMARY. Be extremely concise. Core facts only." :
-        responseMode === 'Political Analysis' ? "Mode: POLITICAL ANALYSIS. Focus on power dynamics, governance, and implications." :
-        responseMode === 'Educational' ? "Mode: EDUCATIONAL. Explain concepts clearly for a student level." :
-        responseMode === 'Deep Research' ? "Mode: DEEP RESEARCH. Exhaustive analysis mode ENABLED. Provide structured, multi-dimensional breakdowns." :
-        "Mode: NORMAL. Balanced intelligence response.";
-
-      const systemInstruction = `
-        You are a helpful assistant inside a chat application ("Chatterbox" hub of DebtFlow).
-        
-        Rules:
-        - Be concise and accurate.
-        - If unsure, say you are unsure.
-        - Never assume API/model capabilities.
-        - If a request depends on unavailable tools or models, explain the limitation and suggest alternatives.
-        - Do not reference internal API errors.
-        - Keep responses user-focused and simple.
-        
-        CURRENT OPERATIONAL MODE: ${modeInstruction}
-        
-        SAFE CONTEXT:
-        ${context}
-      `;
-
-      // Fallback Engine Logic
-      const generateResponse = async () => {
-        const models = [
-          "gemini-1.5-pro-latest",
-          "gemini-1.5-flash",
-          "gemini-1.0-pro"
-        ];
-
-        // Clean messages for the SDK
-        const cleanedMessages = messages.map((m: any) => ({
+      // Clean chat history for the modern SDK: Keep assistants as 'model' and users as 'user'
+      const formattedContents = (messages || [])
+        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .map((m: any) => ({
           role: m.role === 'user' ? 'user' : 'model',
           parts: [{ text: m.content || "" }]
-        })).filter((m: any) => m.parts[0].text.length > 0);
+        }))
+        .filter((c: any) => c.parts[0].text.trim().length > 0);
 
-        for (const modelName of models) {
-          try {
-            console.log(`[Chatterbox] Engaging Node: ${modelName}...`);
-            const aiModel = genAI.getGenerativeModel({ 
-              model: modelName,
-              systemInstruction: systemInstruction 
-            }, { apiVersion: "v1beta" });
+      // Append raw user target text
+      if (userText && userText.trim()) {
+        formattedContents.push({
+          role: 'user',
+          parts: [{ text: userText.trim() }]
+        });
+      }
 
-            const result = await aiModel.generateContent({
-              contents: [
-                ...cleanedMessages,
-                { role: 'user', parts: [{ text: userText }] }
-              ],
-              tools: modelName.includes('flash') ? [{ googleSearch: {} }] as any : [],
-              generationConfig: {
-                maxOutputTokens: deepResearch ? 4096 : 1024,
-                temperature: deepResearch ? 0.8 : 0.4,
-              }
-            });
-            
-            console.log(`[Chatterbox] Response Success from ${modelName}`);
-            return result.response;
-          } catch (e: any) {
-            console.warn(`[Chatterbox] Node ${modelName} Failed:`, e.message);
-            if (e.status === 404 || e.message?.includes('404')) continue;
-            throw e;
-          }
+      if (formattedContents.length === 0) {
+        return res.status(400).json({ error: "Missing active transmission payload" });
+      }
+
+      // Add 12-second gate timeout
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("GATEWAY_TIMEOUT")), 12000);
+      });
+
+      const aiCallPromise = ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: formattedContents,
+        config: {
+          systemInstruction: `You are a cinematic cybernetic AI assistant for DebtFlow called "Chatterbox".
+Purpose:
+- Help users learn about DebtFlow (financial balance tracking, system updates, integrity scores).
+- Answer history, science, literature, general knowledge, and tech inquiries.
+- Act as simple stable assistant.
+
+CRITICAL SECURITY RULE: You CANNOT access Special Ops, Global Audit, admin systems, or hidden tables. If asked, state clearly: "UPLINK DECONSOLIDATED: Access denied for Special Ops / compartmented systems."
+Keep responses clear, concise, informative and engaging using standard Markdown. Do not expose internal technical logs.`,
+          temperature: 0.7,
         }
-        
-        throw new Error("All models failed");
-      };
+      });
 
-      const response = await generateResponse();
-      const text = response.text() || "AI service temporarily unavailable. Switching to backup model...";
+      // Race against timeout
+      const result: any = await Promise.race([aiCallPromise, timeoutPromise]);
+      const text = result?.text || "Chatterbox temporarily unavailable.";
       
       res.json({ text });
     } catch (error: any) {
-      console.error("CHATTERBOX CRITICAL ERROR:", error);
-      res.status(error.status || 500).json({ 
-        error: "Uplink Error", 
-        details: "AI service is currently unavailable. Please try again in a moment."
-      });
+      console.error("CHATTERBOX ERROR:", error);
+      if (error.message === "GATEWAY_TIMEOUT") {
+        return res.status(504).json({ error: "Uplink Timeout. Please retry." });
+      }
+      res.status(500).json({ error: "Chatterbox temporarily unavailable." });
     }
   });
 

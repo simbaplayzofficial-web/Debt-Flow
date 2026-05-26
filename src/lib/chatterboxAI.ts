@@ -3,18 +3,15 @@
  * Handles secure communication with the DebtFlow Intelligence Backend.
  * 
  * NOTE: All AI operations are proxied through /api/chatterbox to protect 
- * credentials and enforce security protocols.
+ * credentials.
  */
 
 export interface ChatterboxRequest {
-  messages: { role: string; content: string }[];
-  context: string;
+  messages: { role: 'user' | 'assistant'; content: string }[];
   userText: string;
-  deepResearch: boolean;
-  responseMode: string;
 }
 
-export async function askChatterbox(request: ChatterboxRequest) {
+export async function askChatterbox(request: ChatterboxRequest): Promise<string> {
   try {
     const response = await fetch('/api/chatterbox', {
       method: 'POST',
@@ -25,15 +22,14 @@ export async function askChatterbox(request: ChatterboxRequest) {
     const data = await response.json();
 
     if (!response.ok) {
-      // Provide detailed error feedback for debugging as requested
-      const errorDetail = data.details || data.error || "Uplink Failure";
+      const errorDetail = data.details || data.error || "Chatterbox temporarily unavailable.";
       console.error("CHATTERBOX UPLINK ERROR:", errorDetail);
       throw new Error(errorDetail);
     }
 
-    return data.text;
+    return data.text || "Chatterbox temporarily unavailable.";
   } catch (error: any) {
     console.error("CHATTERBOX PERIPHERAL FAILURE:", error);
-    throw error;
+    throw new Error("Chatterbox temporarily unavailable.");
   }
 }

@@ -185,20 +185,20 @@
         "updatedAt": { "type": "string" }
       }
     },
-    "MonitoringPillar": {
-      "title": "Monitoring Pillar",
-      "description": "Final bill or case verdict",
+    "AnonymousComplaint": {
+      "title": "Anonymous Complaint",
+      "description": "Black Box anonymous complaint submission",
       "type": "object",
       "properties": {
-        "billId": { "type": "string", "description": "Optional id of original bill" },
-        "caseId": { "type": "string", "description": "Optional id of original case" },
-        "title": { "type": "string" },
-        "verdict": { "type": "string" },
-        "caseNumber": { "type": "string" },
-        "issuedBy": { "type": "string" },
-        "timestamp": { "type": "string" }
+        "message": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "under_review", "resolved", "archived"] },
+        "source": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "internalNotes": { "type": "string" }
       },
-      "required": ["title", "verdict", "issuedBy", "timestamp"]
+      "required": ["message", "createdAt", "status", "source"]
     },
     "ChatterboxMessage": {
       "title": "Chatterbox Message",
@@ -286,9 +286,9 @@
       "schema": { "$ref": "#/entities/Reward" },
       "description": "Collection of user rewards"
     },
-    "monitoringPillars/{id}": {
-      "schema": { "$ref": "#/entities/MonitoringPillar" },
-      "description": "Historical collection of finalized verdicts"
+    "anonymousComplaints/{id}": {
+      "schema": { "$ref": "#/entities/AnonymousComplaint" },
+      "description": "Secure black box anonymous complaints"
     },
     "votes/{id}": {
       "schema": { "$ref": "#/entities/Vote" },

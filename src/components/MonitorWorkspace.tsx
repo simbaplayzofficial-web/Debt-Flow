@@ -1,20 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { useStore, AnnouncementSection } from '../store';
+import { AnonymousChatTerminal } from './AnonymousChatTerminal';
 import { 
   CheckCircle2, XCircle, Clock, User, FileText, ShieldCheck, 
   AlertCircle, TrendingUp, Layout, Scale, ShieldAlert, Star, 
   Shield, Megaphone, Send, Trash2, ListChecks, Activity, Users,
-  Gavel, RotateCcw, AlertTriangle, Search, Settings, Filter, Calendar
+  Gavel, RotateCcw, AlertTriangle, Search, Settings, Filter, Calendar,
+  Archive, FileEdit, UserCheck, EyeOff, Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-type WorkspaceTab = 'validations' | 'bill_filing' | 'monitor_deck' | 'enforcement' | 'monitoring_pillars';
+type WorkspaceTab = 'validations' | 'bill_filing' | 'complaints' | 'enforcement';
 
 export const MonitorWorkspace: React.FC = () => {
   const { 
-    transactions, users, approveTransaction, rejectTransaction, reviewComplaint, 
+    transactions, users, approveTransaction, rejectTransaction, 
     currentUser, roleRequests, rolesConfig, updateRolesConfig, resolveRoleRequest,
-    complaints, activityLogs, monitoringPillars, resolvingDeck, resolveBill,
+    anonymousComplaints, updateAnonymousComplaintStatus, assignAnonymousComplaint, 
+    updateAnonymousComplaintNotes, deleteAnonymousComplaint,
+    claimAnonymousComplaint, openAnonymousLine,
+    activityLogs, resolvingDeck, resolveBill,
     announcements, postAnnouncement, deleteAnnouncement, debtAdjustments,
     systemStatus, updateSystemStatus, issueWarning, revokeWarning, updateWarningRules, deleteUser,
     warningRules, allWarnings
@@ -23,6 +28,13 @@ export const MonitorWorkspace: React.FC = () => {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('validations');
   const [loading, setLoading] = useState<string | null>(null);
   const [resolutionModal, setResolutionModal] = useState<string | null>(null);
+
+  // Complaints Workspace States
+  const [complaintsSubTab, setComplaintsSubTab] = useState<'pending' | 'under_review' | 'resolved' | 'archived'>('pending');
+  const [selectedComplaintId, setSelectedComplaintId] = useState<string | null>(null);
+  const [tempNotes, setTempNotes] = useState('');
+  const [verdictInput, setVerdictInput] = useState('');
+  const [isNotesSaving, setIsNotesSaving] = useState(false);
 
   // Bill Filing states
   const [billTitle, setBillTitle] = useState('');
@@ -37,6 +49,12 @@ export const MonitorWorkspace: React.FC = () => {
   const [warnReason, setWarnReason] = useState('');
   const [isSubmittingWarn, setIsSubmittingWarn] = useState(false);
   const [editingRules, setEditingRules] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (activeTab === 'enforcement' && currentUser?.role !== 'admin') {
+      setActiveTab('validations');
+    }
+  }, [activeTab, currentUser]);
 
   useEffect(() => {
     if (warningRules.length > 0 && editingRules.length === 0) {
@@ -80,7 +98,7 @@ export const MonitorWorkspace: React.FC = () => {
       setBillCategory('Governance');
       setBillPriority('Medium');
       alert("LEGISLATIVE PROTOCOL INITIATED: Bill published.");
-      setActiveTab('monitor_deck'); // Redirect to discussions or stay
+      setActiveTab('complaints'); // Redirect to complaints tab
     } catch (err: any) {
       alert(`FILING FAILED: ${err.message}`);
     } finally {
@@ -102,7 +120,7 @@ export const MonitorWorkspace: React.FC = () => {
     .filter(t => t.status === 'pending')
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
-  const pendingComplaints = complaints.filter(c => !c.reviewedBy.includes(currentUser.id));
+  const pendingComplaintsCount = anonymousComplaints.filter(c => c.status === 'pending').length;
   const pendingCases = resolvingDeck.filter(c => c.status === 'under_investigation').length;
   const pendingDebts = debtAdjustments.filter(a => a.status === 'REQUESTED').length;
 
@@ -112,7 +130,7 @@ export const MonitorWorkspace: React.FC = () => {
         <div>
           <h1 className="text-4xl font-black italic tracking-tighter text-neutral-100 flex items-center gap-3">
              <Layout className="text-blue-500" size={32} />
-             Monitor <span className="text-blue-500">Workspace</span>
+             Council <span className="text-blue-500">Workspace</span>
           </h1>
           <p className="text-neutral-500 text-xs font-bold uppercase tracking-[0.2em] mt-2">
             Central Command & Validation Protocol
@@ -142,11 +160,10 @@ export const MonitorWorkspace: React.FC = () => {
       {/* Workspace Tabs */}
       <div className="flex flex-wrap gap-2 p-1 bg-neutral-950 border border-neutral-800 rounded-2xl">
          {[
-           { id: 'validations', label: 'Validations', icon: ListChecks, count: pendingTransactions.length },
+           { id: 'validations', label: 'Validations', icon: ListChecks, count: pendingTransactions.length + pendingDebts },
            { id: 'bill_filing', label: 'Bill Filing', icon: Send, count: 0 },
-           { id: 'monitor_deck', label: 'Monitor Deck', icon: Layout, count: pendingDebts },
-           { id: 'enforcement', label: 'Enforcement', icon: Gavel, count: pendingCases },
-           { id: 'monitoring_pillars', label: 'Monitoring Pillars', icon: Scale, count: 0 },
+           { id: 'complaints', label: 'Complaints', icon: ShieldAlert, count: pendingComplaintsCount },
+           ...(currentUser?.role === 'admin' ? [{ id: 'enforcement', label: 'Enforcement', icon: Gavel, count: pendingCases }] : []),
          ].map((t) => (
            <button
              key={t.id}
@@ -276,6 +293,81 @@ export const MonitorWorkspace: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Debt Adjustment Approvals */}
+              <div className="pt-10 border-t border-neutral-800 space-y-6">
+                <h2 className="text-xl font-bold tracking-tight italic flex items-center gap-2 text-green-500 font-sans">
+                  <TrendingUp size={24} />
+                  Debt Forgiveness Approvals
+                </h2>
+                <div className="grid md:grid-cols-2 gap-6">
+                  {debtAdjustments.filter(a => a.status === 'REQUESTED').map(adj => {
+                    const borrower = users.find(u => u.id === adj.borrowerId);
+                    const lender = users.find(u => u.id === adj.lenderId);
+                    return (
+                      <div key={adj.id} className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl group transition-all hover:border-green-500/30 animate-pulse">
+                        <p className="text-xs font-bold text-neutral-200 mb-2">
+                          <span className="text-green-400">@{lender?.username}</span> requests forgiveness for <span className="text-blue-400">@{borrower?.username}</span>
+                        </p>
+                        <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 mb-6 flex justify-between items-center">
+                          <div>
+                            <p className="text-[10px] text-neutral-500 font-bold uppercase mb-1 italic">Forgiveness Amount</p>
+                            <p className="text-2xl font-black italic tracking-tighter text-blue-500">{adj.amount} DB</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-neutral-500 font-bold uppercase mb-1 italic">Date Lodged</p>
+                            <p className="text-[10px] text-neutral-400 font-mono italic">{new Date(adj.requestedAt).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 font-sans">
+                          <button 
+                            onClick={async () => { 
+                              if (confirm("Approve adjustment?")) {
+                                setLoading(adj.id);
+                                try {
+                                  await useStore.getState().approveDebtAdjustment(adj.id);
+                                  alert("Adjustment Approved.");
+                                } catch(err: any) {
+                                  alert(err.message);
+                                }
+                                setLoading(null);
+                              } 
+                            }}
+                            disabled={!!loading}
+                            className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white text-[10px] font-black uppercase rounded-xl transition-all shadow-lg shadow-green-900/20 cursor-pointer text-center"
+                          >
+                            Approve
+                          </button>
+                          <button 
+                            onClick={async () => { 
+                              if (confirm("Reject adjustment?")) {
+                                setLoading(adj.id);
+                                try {
+                                   await useStore.getState().rejectDebtAdjustment(adj.id);
+                                   alert("Adjustment Rejected.");
+                                } catch(err: any) {
+                                  alert(err.message);
+                                }
+                                setLoading(null);
+                              } 
+                            }}
+                            disabled={!!loading}
+                            className="flex-1 py-3 bg-neutral-850 hover:bg-red-900 text-neutral-400 hover:text-red-500 border border-neutral-700 text-[10px] font-black uppercase rounded-xl transition-all cursor-pointer text-center"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {debtAdjustments.filter(a => a.status === 'REQUESTED').length === 0 && (
+                    <div className="p-16 border border-neutral-800 border-dashed rounded-[3rem] text-center col-span-full bg-neutral-950/20">
+                      <CheckCircle2 size={32} className="mx-auto text-neutral-800 mb-4 opacity-20" />
+                      <p className="text-neutral-600 text-[11px] font-black uppercase tracking-widest italic">No pending adjustments.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </motion.div>
           )}
 
@@ -371,113 +463,326 @@ export const MonitorWorkspace: React.FC = () => {
             </motion.div>
           )}
 
-          {activeTab === 'monitor_deck' && (
-            <motion.div 
-              key="monitor_deck"
+          {/* COMPLAINTS - Anonymous Black Box Workspace */}
+          {activeTab === 'complaints' && (
+            <motion.div
+              key="complaints"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="space-y-8"
+              className="space-y-6 animate-in fade-in"
             >
-              <div className="space-y-6">
-                <h2 className="text-xl font-bold tracking-tight italic flex items-center gap-2 text-green-500">
-                  <TrendingUp size={24} />
-                  Debt Adjustment Approvals
-                </h2>
-                <div className="grid md:grid-cols-2 gap-4">
-                  {debtAdjustments.filter(a => a.status === 'REQUESTED').map(adj => {
-                    const borrower = users.find(u => u.id === adj.borrowerId);
-                    const lender = users.find(u => u.id === adj.lenderId);
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-neutral-850">
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight italic flex items-center gap-2">
+                    <ShieldCheck className="text-orange-500" />
+                    Secure Complaints Desk
+                  </h2>
+                  <p className="text-[10px] text-neutral-500 font-mono tracking-wider uppercase mt-1">
+                    Anonymous Transmission Portal
+                  </p>
+                </div>
+                {/* Sub tabs matching pending, under_review, resolved, archived */}
+                <div className="flex bg-neutral-900 p-1 border border-neutral-800 rounded-xl gap-1">
+                  {(['pending', 'under_review', 'resolved', 'archived'] as const).map(tab => {
+                    const count = anonymousComplaints.filter(c => c.status === tab).length;
                     return (
-                      <div key={adj.id} className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl group transition-all hover:border-green-500/30">
-                        <p className="text-xs font-bold text-neutral-200 mb-2">
-                          <span className="text-green-400">@{lender?.username}</span> requests forgiveness for <span className="text-blue-400">@{borrower?.username}</span>
-                        </p>
-                        <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 mb-6 flex justify-between items-center">
-                          <div>
-                            <p className="text-[10px] text-neutral-500 font-bold uppercase mb-1 italic">Forgiveness Amount</p>
-                            <p className="text-2xl font-black italic tracking-tighter text-blue-500">{adj.amount} DB</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-[10px] text-neutral-500 font-bold uppercase mb-1 italic">Date Lodged</p>
-                            <p className="text-[10px] text-neutral-400 font-mono italic">{new Date(adj.requestedAt).toLocaleDateString()}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => { if (confirm("Approve adjustment?")) alert("Adjusted."); }}
-                            className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white text-[10px] font-black uppercase rounded-xl transition-all active:scale-95 shadow-lg shadow-green-900/20"
-                          >
-                            Approve
-                          </button>
-                          <button 
-                            onClick={() => { if (confirm("Reject adjustment?")) alert("Rejected."); }}
-                            className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 border border-neutral-700 text-[10px] font-black uppercase rounded-xl transition-all"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      </div>
+                      <button
+                        key={tab}
+                        onClick={() => {
+                          setComplaintsSubTab(tab);
+                          setSelectedComplaintId(null);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                          complaintsSubTab === tab
+                            ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                            : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-955/40'
+                        }`}
+                      >
+                        {tab.replace('_', ' ')}
+                        {count > 0 && (
+                          <span className="ml-1.5 px-1 py-0.5 bg-neutral-950 rounded text-[8px] font-mono text-neutral-400">
+                            {count}
+                          </span>
+                        )}
+                      </button>
                     );
                   })}
-                  {debtAdjustments.filter(a => a.status === 'REQUESTED').length === 0 && (
-                    <div className="p-20 border border-neutral-800 border-dashed rounded-[3rem] text-center col-span-full">
-                      <CheckCircle2 size={32} className="mx-auto text-neutral-800 mb-4 opacity-20" />
-                      <p className="text-neutral-600 text-[11px] font-black uppercase tracking-widest italic">No pending adjustments.</p>
+                </div>
+              </div>
+
+              {/* Master Split Grid */}
+              <div className="grid lg:grid-cols-[1fr_400px] gap-8">
+                {/* Complaints List Pane */}
+                <div className="space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+                  {anonymousComplaints.filter(c => c.status === complaintsSubTab).length === 0 ? (
+                    <div className="p-20 border border-dashed border-neutral-800 rounded-3xl text-center flex flex-col items-center justify-center bg-neutral-900/10">
+                      <Lock size={32} className="text-neutral-700/50 mb-4 animate-pulse" />
+                      <p className="text-[10px] font-black uppercase text-neutral-500 tracking-widest">No Transmissions</p>
+                      <p className="text-[10px] text-neutral-600 mt-1 italic uppercase">Sub-deck currently unoccupied.</p>
                     </div>
+                  ) : (
+                    anonymousComplaints
+                      .filter(c => c.status === complaintsSubTab)
+                      .map(c => {
+                        const assignedUser = users.find(u => u.id === c.assignedTo);
+                        const isSelected = selectedComplaintId === c.id;
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => {
+                              setSelectedComplaintId(c.id);
+                              setTempNotes(c.internalNotes || '');
+                            }}
+                            className={`p-6 rounded-2xl border transition-all duration-300 cursor-pointer text-left relative overflow-hidden group hover:shadow-lg ${
+                              isSelected
+                                ? 'bg-orange-500/5 border-orange-500/50 shadow-[0_0_15px_rgba(249,115,22,0.05)]'
+                                : 'bg-neutral-900 border-neutral-800 hover:border-neutral-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                              <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 bg-neutral-950 rounded-md text-orange-400 border border-orange-500/10">
+                                {c.category || 'General'}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[8px] font-mono text-neutral-500">
+                                  {new Date(c.createdAt).toLocaleDateString()}
+                                </span>
+                                <span className={`text-[7px] font-bold py-0.5 px-1 rounded uppercase select-none ${
+                                  c.source?.includes('groups') ? 'bg-blue-600/10 text-blue-400' : 'bg-purple-600/10 text-purple-400'
+                                }`}>
+                                  {c.source === 'groups_blackbox' ? 'Groups' : 'Profile'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-neutral-300 line-clamp-3 leading-relaxed mb-4">
+                              {c.message}
+                            </p>
+
+                            <div className="flex items-center justify-between pt-3 border-t border-neutral-850">
+                              <span className="text-[8px] font-mono text-neutral-600 uppercase tracking-tighter">
+                                Code ID: #{c.id.substring(0, 8)}
+                              </span>
+                              <span className="text-[9px] font-bold text-neutral-500 flex items-center gap-1">
+                                <User size={10} className="text-neutral-600" />
+                                {assignedUser ? `@${assignedUser.username}` : 'Unassigned'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
                   )}
                 </div>
+
+                {/* Complaint Details Panel */}
+                <aside className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 h-fit min-h-[400px] flex flex-col justify-between">
+                  {selectedComplaintId ? (() => {
+                    const complaint = anonymousComplaints.find(c => c.id === selectedComplaintId);
+                    if (!complaint) return null;
+                    const assignedUser = users.find(u => u.id === complaint.assignedTo);
+                    const staffUsers = users.filter(u => u.role === 'admin' || u.role === 'monitor');
+
+                    return (
+                      <div className="space-y-6 flex-1 flex flex-col justify-between">
+                        {/* Upper Details */}
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black text-orange-400 bg-orange-500/5 px-2.5 py-1 border border-orange-500/10 rounded-lg uppercase tracking-wider">
+                              Category: {complaint.category || 'General'}
+                            </span>
+                            <span className="text-[8px] text-neutral-500 font-mono">
+                              File Code ID: #{complaint.id.substring(0, 10)}
+                            </span>
+                          </div>
+
+                          <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-850">
+                            <h4 className="text-[9px] font-mono font-bold text-neutral-600 uppercase mb-2">Original Anonymized Statement</h4>
+                            <p className="text-xs text-neutral-300 leading-relaxed whitespace-pre-wrap select-text">
+                              {complaint.message}
+                            </p>
+                          </div>
+
+                          {/* Secure Assignment & Communications Line */}
+                          {(() => {
+                            const isLockedByOther = complaint.assignedMonitorId && complaint.assignedMonitorId !== currentUser?.id;
+                            
+                            if (isLockedByOther) {
+                              return (
+                                <div className="bg-red-950/20 border border-red-500/20 rounded-2xl p-5 text-center space-y-3 font-mono">
+                                  <Lock size={18} className="text-red-500 mx-auto animate-pulse" />
+                                  <h3 className="text-red-400 text-[10px] font-bold uppercase tracking-wider">SECURED LINE LOCKED</h3>
+                                  <p className="text-[10px] text-neutral-400 leading-relaxed">
+                                    This complaint is locked to coordinator <span className="text-red-400 font-bold">{complaint.assignedMonitorName || 'another staff monitor'}</span>. 
+                                    Barred from intercepting transmissions.
+                                  </p>
+                                </div>
+                              );
+                            }
+
+                            if (!complaint.assignedMonitorId) {
+                              return (
+                                <div className="bg-neutral-950 border border-neutral-850 rounded-2xl p-5 space-y-4 text-center">
+                                  <ShieldAlert size={28} className="text-orange-500 mx-auto animate-pulse" />
+                                  <div className="space-y-1">
+                                    <h4 className="text-neutral-300 text-xs font-bold uppercase tracking-wider">Unclaimed Transmission</h4>
+                                    <p className="text-[9px] text-neutral-500">Claim to establish secure anonymous correspondence line.</p>
+                                  </div>
+                                  <button
+                                    onClick={async () => {
+                                      await claimAnonymousComplaint(complaint.id);
+                                    }}
+                                    className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white text-[10px] uppercase font-bold tracking-widest font-mono rounded-xl transition-all shadow-md shadow-orange-500/10 cursor-pointer"
+                                  >
+                                    Claim Complaint
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="space-y-4">
+                                <div className="p-3 bg-emerald-950/10 border border-emerald-500/10 rounded-xl flex items-center justify-between">
+                                  <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                                    Correspondence Active
+                                  </span>
+                                  <span className="text-[8px] text-neutral-500 font-mono">
+                                    Secured to you
+                                  </span>
+                                </div>
+
+                                {!complaint.anonymousThreadId ? (
+                                  <div className="bg-neutral-950 border border-neutral-850 rounded-xl p-4 text-center space-y-3">
+                                    <p className="text-[9px] text-neutral-400">Establish a real-time anonymized link with complainant.</p>
+                                    <button
+                                      onClick={async () => {
+                                        await openAnonymousLine(complaint.id);
+                                      }}
+                                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] uppercase tracking-widest font-bold rounded-xl transition-all cursor-pointer shadow-md shadow-emerald-600/10"
+                                    >
+                                      Open Anonymous Line
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    <label className="block text-[9px] font-black text-neutral-500 uppercase tracking-widest ml-1">
+                                      Live Secure Chat Transceiver
+                                    </label>
+                                    <AnonymousChatTerminal threadId={complaint.id} senderType="monitor" />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Notes Textarea */}
+                          {complaint.assignedMonitorId === currentUser?.id && (
+                            <div className="space-y-2 pt-2">
+                            <div className="flex items-center justify-between ml-1">
+                              <label className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">
+                                Internal Staff Notes
+                              </label>
+                              <span className="text-[8px] text-neutral-600 font-mono">Visible to Staff Only</span>
+                            </div>
+                            <textarea
+                              value={tempNotes}
+                              onChange={(e) => setTempNotes(e.target.value)}
+                              placeholder="Add private investigation notes here..."
+                              className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs text-neutral-300 h-24 max-h-32 resize-none focus:border-neutral-700 outline-none"
+                            />
+                            <button
+                              onClick={async () => {
+                                setIsNotesSaving(true);
+                                try {
+                                  await updateAnonymousComplaintNotes(complaint.id, tempNotes);
+                                  alert("Notes synchronized with central ledger.");
+                                } catch (err) {
+                                  console.error(err);
+                                } finally {
+                                  setIsNotesSaving(false);
+                                }
+                              }}
+                              disabled={isNotesSaving}
+                              className="w-full bg-neutral-800 hover:bg-neutral-750 text-neutral-300 border border-neutral-800 text-[9px] font-black py-2.5 rounded-lg uppercase tracking-wider transition-all"
+                            >
+                              {isNotesSaving ? 'Saving note...' : 'Synch Internal Notes'}
+                            </button>
+                          </div>
+                          )}
+                        </div>
+
+                        {/* Status Mutation Actions */}
+                        {complaint.assignedMonitorId === currentUser?.id && (
+                          <div className="pt-4 border-t border-neutral-850 space-y-3">
+                          <p className="text-[9px] font-black text-neutral-600 uppercase tracking-widest ml-1 text-center">
+                            Workflow Enactments
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {complaint.status !== 'under_review' && (
+                              <button
+                                onClick={async () => {
+                                  await updateAnonymousComplaintStatus(complaint.id, 'under_review');
+                                }}
+                                className="py-2.5 bg-orange-600/10 border border-orange-500/20 text-orange-400 text-[9px] font-black uppercase rounded-lg hover:bg-orange-600 hover:text-white transition-all text-center"
+                              >
+                                Mark Review
+                              </button>
+                            )}
+                            {complaint.status !== 'resolved' && (
+                              <button
+                                onClick={async () => {
+                                  await updateAnonymousComplaintStatus(complaint.id, 'resolved');
+                                }}
+                                className="py-2.5 bg-green-600/10 border border-green-500/20 text-green-400 text-[9px] font-black uppercase rounded-lg hover:bg-green-600 hover:text-white transition-all text-center"
+                              >
+                                Resolve
+                              </button>
+                            )}
+                            {complaint.status !== 'archived' && (
+                              <button
+                                onClick={async () => {
+                                  await updateAnonymousComplaintStatus(complaint.id, 'archived');
+                                }}
+                                className="py-2.5 bg-neutral-800 border border-neutral-700 text-neutral-300 text-[9px] font-black uppercase rounded-lg hover:bg-neutral-700 transition-all text-center col-span-2"
+                              >
+                                Archive Complaint
+                              </button>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={async () => {
+                              if (confirm("Are you absolutely certain you wish to purge this database file record? This action is non-reversible.")) {
+                                await deleteAnonymousComplaint(complaint.id);
+                                setSelectedComplaintId(null);
+                                alert("Transmission purged completely.");
+                              }
+                            }}
+                            className="w-full py-2 bg-red-600/10 border border-red-500/20 text-red-500 text-[9px] font-black uppercase rounded-lg hover:bg-red-600 hover:text-white transition-all text-center mt-2"
+                          >
+                            Delete / Purge
+                          </button>
+                        </div>
+                        )}
+                      </div>
+                    );
+                  })() : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center py-20 opacity-40">
+                      <Lock size={32} className="text-neutral-700 mb-3" />
+                      <p className="text-[12px] font-black uppercase tracking-[0.2em] italic">Zero Node Selected</p>
+                      <p className="text-[10px] text-neutral-600 italic mt-1 leading-normal">
+                        Select an active transmission item on the left panel to execute staff workflow protocols.
+                      </p>
+                    </div>
+                  )}
+                </aside>
               </div>
             </motion.div>
           )}
 
-          {activeTab === 'monitoring_pillars' && (
-            <motion.div 
-               key="monitoring_pillars"
-               initial={{ opacity: 0, y: 10 }}
-               animate={{ opacity: 1, y: 0 }}
-               exit={{ opacity: 0, y: -10 }}
-               className="space-y-8"
-            >
-               <h2 className="text-xl font-bold tracking-tight italic flex items-center gap-2 mb-6">
-                  <ShieldCheck className="text-blue-500" />
-                  Judicial Pillars (Latest Verdicts)
-               </h2>
-               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {monitoringPillars.map(p => {
-                    const author = users.find(u => u.id === p.issuedBy);
-                    return (
-                      <div key={p.id} className="bg-neutral-900 border border-neutral-800 p-8 rounded-4xl relative overflow-hidden group hover:border-blue-500 transition-all">
-                         <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-all transform group-hover:scale-110">
-                            <Shield size={64} />
-                         </div>
-                         <div className="flex justify-between items-start mb-6">
-                            <span className="text-[10px] font-mono text-blue-500 font-black bg-blue-500/10 px-3 py-1 rounded-lg border border-blue-500/20 italic tracking-widest">{p.caseNumber}</span>
-                            <span className="text-[10px] text-neutral-600 font-bold uppercase tracking-tighter italic">{new Date(p.timestamp).toLocaleDateString()}</span>
-                         </div>
-                         <h4 className="text-lg font-black text-neutral-100 uppercase tracking-tight mb-4 italic leading-tight">{p.title}</h4>
-                         <p className="text-sm text-blue-400 font-bold italic leading-relaxed mb-6 border-l-2 border-blue-500/30 pl-4">"{p.verdict}"</p>
-                         <div className="mt-auto pt-6 border-t border-neutral-800/50 flex items-center gap-3">
-                            <div className="w-8 h-8 bg-neutral-950 rounded-xl flex items-center justify-center text-[10px] font-black text-neutral-600 uppercase border border-neutral-800 shadow-inner">
-                               {author?.username?.[0] || 'A'}
-                            </div>
-                            <span className="text-[10px] text-neutral-500 font-black uppercase tracking-widest italic">@{author?.username || 'admin'}</span>
-                         </div>
-                      </div>
-                    );
-                  })}
-                  {monitoringPillars.length === 0 && (
-                    <div className="col-span-full p-32 border border-neutral-800 border-dashed rounded-[3rem] text-center">
-                       <ShieldCheck size={48} className="mx-auto text-neutral-800 mb-6 opacity-20" />
-                       <p className="text-neutral-600 text-sm font-black uppercase tracking-[0.3em] italic">Judicial records empty. Equilibrium sustained.</p>
-                    </div>
-                  )}
-               </div>
-            </motion.div>
-          )}
-
           {/* ENFORCEMENT - Consolidated Resolving Deck & Warnings */}
-          {activeTab === 'enforcement' && (
+          {activeTab === 'enforcement' && currentUser?.role === 'admin' && (
             <motion.div 
                key="enforcement"
                initial={{ opacity: 0, y: 10 }}

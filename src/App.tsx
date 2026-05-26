@@ -37,7 +37,7 @@ function SidebarItem({ icon: Icon, label, active, onClick, className = '' }: { i
 }
 
 export default function App() {
-  const { currentUser, logout, isLoading, hasSpecialAccess } = useStore();
+  const { currentUser, logout, isLoading, hasSpecialAccess, specialOpsMode, setSpecialOpsMode } = useStore();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -51,7 +51,7 @@ export default function App() {
       groups: true,
       chatterbox: true,
       representatives: true,
-      specialops: hasSpecialAccess,
+      specialops: hasSpecialAccess && specialOpsMode,
       monitor: currentUser.role === 'admin' || currentUser.role === 'monitor',
       master: currentUser.role === 'admin',
       control: currentUser.role === 'admin'
@@ -60,7 +60,7 @@ export default function App() {
     if (!accessMap[activeTab]) {
       setActiveTab('dashboard');
     }
-  }, [currentUser, activeTab, hasSpecialAccess]);
+  }, [currentUser, activeTab, hasSpecialAccess, specialOpsMode]);
 
   // DEBUG LOG (Requested)
   React.useEffect(() => {
@@ -95,6 +95,52 @@ export default function App() {
       default: return <Dashboard />;
     }
   };
+
+  if (hasSpecialAccess && specialOpsMode) {
+    return (
+      <div className="min-h-screen bg-black text-red-500 flex flex-col font-mono selection:bg-red-650/30 overflow-hidden relative">
+        {/* Cybersecurity scanline aesthetic */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.002),rgba(0,0,255,0.03))] bg-[size:100%_4px,3px_100%] pointer-events-none z-50 opacity-35" />
+        
+        {/* Classified Top Navigation Header */}
+        <header className="h-16 flex items-center justify-between px-6 border-b border-red-950 bg-neutral-950/90 backdrop-blur-xl relative z-40">
+          <div className="flex items-center gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-600 shadow-[0_0_10px_#ef4444] animate-pulse" />
+            <span className="w-2.5 h-2.5 absolute rounded-full bg-red-500" />
+            <h1 className="text-sm font-black tracking-[0.3em] uppercase text-red-500">
+              SPECIAL OPERATIONS SECURE PORTAL
+            </h1>
+            <span className="px-2 py-0.5 border border-red-500/20 text-[8px] bg-red-950/20 text-red-400 font-bold tracking-widest uppercase">
+              Classified Stream
+            </span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <p className="text-[10px] text-neutral-500 tracking-wider font-bold uppercase">
+              OPERATIVE: @{currentUser.username} | CLEARANCE: OMNI
+            </p>
+            <button
+              onClick={() => {
+                setSpecialOpsMode(false);
+                setActiveTab('dashboard');
+              }}
+              className="px-4 py-2 bg-red-950/65 hover:bg-red-900/65 border border-red-500/30 hover:border-red-500 text-red-450 rounded-xl transition-all text-xs font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_15px_rgba(239,68,68,0.1)] hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] cursor-pointer"
+            >
+              <EyeOff size={14} />
+              Terminate Session
+            </button>
+          </div>
+        </header>
+
+        {/* Classified Console Workspace */}
+        <div className="flex-1 overflow-y-auto bg-black p-8 text-neutral-200">
+          <div className="max-w-7xl mx-auto space-y-8">
+            <SpecialOps />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex overflow-hidden font-sans selection:bg-blue-500/30">
@@ -161,19 +207,10 @@ export default function App() {
             active={activeTab === 'representatives'} 
             onClick={() => { setActiveTab('representatives'); setIsSidebarOpen(false); }} 
           />
-          {hasSpecialAccess && (
-            <SidebarItem 
-              icon={EyeOff} 
-              label="Special Ops" 
-              active={activeTab === 'specialops'} 
-              onClick={() => { setActiveTab('specialops'); setIsSidebarOpen(false); }} 
-              className="bg-red-500/5 text-red-500/80 border-red-500/10 hover:bg-red-500/10"
-            />
-          )}
           {(currentUser.role === 'admin' || currentUser.role === 'monitor') && (
             <SidebarItem 
               icon={ShieldCheck} 
-              label="Monitor Workspace" 
+              label="Council Workspace" 
               active={activeTab === 'monitor'} 
               onClick={() => { setActiveTab('monitor'); setIsSidebarOpen(false); }} 
               className="bg-blue-500/5 text-blue-400 border-blue-500/10 hover:bg-blue-500/10"
