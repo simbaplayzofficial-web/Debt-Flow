@@ -563,7 +563,6 @@ export const useStore = create<State>()((set, get) => ({
     { level: 4, penalty: 'Prolonged suspension', integrityDeduction: 50 },
     { level: 5, penalty: 'Permanent removal protocol', integrityDeduction: 100 },
   ],
-  isTutorialRunning: false,
   groupPosts: {
     studying: [],
     monitoring: [],
@@ -2430,6 +2429,53 @@ export const useStore = create<State>()((set, get) => ({
     } catch (error) {
        handleFirestoreError(error, OperationType.UPDATE, `votes/${voteId}`);
     }
+  },
+
+  submitComplaint: async (subject, complaint) => {
+    const { currentUser } = get();
+    if (!currentUser) throw new Error("UNAUTHORIZED");
+    const docRef = await addDoc(collection(db, "complaints"), {
+      subject,
+      complaint,
+      createdByUid: currentUser.uid,
+      createdAt: serverTimestamp(),
+      status: "pending",
+      assignedMonitorId: null,
+      lastMessageAt: serverTimestamp()
+    });
+    return docRef.id;
+  },
+
+  claimComplaint: async (complaintId) => {
+    const { currentUser } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
+    await updateDoc(doc(db, "complaints", complaintId), {
+      assignedMonitorId: currentUser.uid,
+      status: "under_review"
+    });
+  },
+
+  resolveComplaint: async (complaintId) => {
+    await updateDoc(doc(db, "complaints", complaintId), {
+      status: "resolved"
+    });
+  },
+
+  sendComplaintMessage: async (complaintId, message) => {
+    const { currentUser } = get();
+    if (!currentUser) throw new Error("UNAUTHORIZED");
+    
+    await addDoc(collection(db, "complaintMessages"), {
+      complaintId,
+      senderRole: currentUser.role === 'monitor' || currentUser.role === 'admin' ? 'monitor' : 'user',
+      senderUid: currentUser.uid,
+      message,
+      createdAt: serverTimestamp()
+    });
+    
+    await updateDoc(doc(db, "complaints", complaintId), {
+      lastMessageAt: serverTimestamp()
+    });
   },
 }));
 

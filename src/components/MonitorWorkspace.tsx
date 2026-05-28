@@ -13,28 +13,69 @@ import { motion, AnimatePresence } from 'motion/react';
 type WorkspaceTab = 'validations' | 'bill_filing' | 'complaints' | 'enforcement';
 
 export const MonitorWorkspace: React.FC = () => {
+  // In the MonitorWorkspace component:
+  // Instead of:
+  // const { anonymousComplaints, ... } = useStore();
+  // We need to fetch and manage complaints in the component based on the new local state.
+  // ...
   const { 
     transactions, users, approveTransaction, rejectTransaction, 
     currentUser, roleRequests, rolesConfig, updateRolesConfig, resolveRoleRequest,
-    anonymousComplaints, updateAnonymousComplaintStatus, assignAnonymousComplaint, 
-    updateAnonymousComplaintNotes, deleteAnonymousComplaint,
-    claimAnonymousComplaint, openAnonymousLine,
+    // REMOVED anonymousComplaints, updateAnonymousComplaintStatus, etc.
     activityLogs, resolvingDeck, resolveBill,
     announcements, postAnnouncement, deleteAnnouncement, debtAdjustments,
     systemStatus, updateSystemStatus, issueWarning, revokeWarning, updateWarningRules, deleteUser,
-    warningRules, allWarnings
+    warningRules, allWarnings,
+    // Add new methods:
+    claimComplaint, resolveComplaint, sendComplaintMessage
   } = useStore();
+  
+  // ...
+  // When rendering the list:
+  // Use localComplaints instead of anonymousComplaints
+  // When claiming:
+  // await claimComplaint(complaintId);
+  // When resolving:
+  // await resolveComplaint(complaintId);
+  // When sending message:
+  // await sendComplaintMessage(complaintId, message);
 
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('validations');
   const [loading, setLoading] = useState<string | null>(null);
   const [resolutionModal, setResolutionModal] = useState<string | null>(null);
 
   // Complaints Workspace States
-  const [complaintsSubTab, setComplaintsSubTab] = useState<'pending' | 'under_review' | 'resolved' | 'archived'>('pending');
+  const [complaintsSubTab, setComplaintsSubTab] = useState<'pending' | 'under_review' | 'resolved'>('pending');
   const [selectedComplaintId, setSelectedComplaintId] = useState<string | null>(null);
   const [tempNotes, setTempNotes] = useState('');
   const [verdictInput, setVerdictInput] = useState('');
   const [isNotesSaving, setIsNotesSaving] = useState(false);
+  const [localComplaints, setLocalComplaints] = useState<Complaint[]>([]);
+  const [complaintsLoading, setComplaintsLoading] = useState(true);
+
+  // Realtime Listener for Complaints
+  useEffect(() => {
+    setComplaintsLoading(true);
+    const q = query(
+      collection(db, "complaints"),
+      where("status", "==", complaintsSubTab),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const complaintData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Complaint[];
+      setLocalComplaints(complaintData);
+      setComplaintsLoading(false);
+    }, (error) => {
+      console.error("Complaint listener failed:", error);
+      setComplaintsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [complaintsSubTab]);
 
   // Bill Filing states
   const [billTitle, setBillTitle] = useState('');

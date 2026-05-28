@@ -17,7 +17,7 @@ interface BlackBoxProps {
 }
 
 export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
-  const submitAnonymousComplaint = useStore(state => state.submitAnonymousComplaint);
+  const submitComplaint = useStore(state => state.submitComplaint);
   const [complaintText, setComplaintText] = useState('');
   const [category, setCategory] = useState('General');
   const [status, setStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
@@ -41,7 +41,7 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
     setErrorMessage('');
 
     try {
-      await submitAnonymousComplaint(complaintText.trim(), category, source);
+      await submitComplaint(category, complaintText.trim());
       setStatus('success');
       setComplaintText('');
       setCategory('General');
