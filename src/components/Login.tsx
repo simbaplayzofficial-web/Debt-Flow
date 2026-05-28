@@ -238,9 +238,9 @@ export default function Login() {
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-lg shadow-emerald-500/10">
                   <Check size={32} className="animate-bounce" />
                 </div>
-                <h3 className="text-lg font-black font-sans text-emerald-400 uppercase tracking-widest">Request Submitted</h3>
-                <p className="text-neutral-300 text-xs max-w-sm font-mono leading-relaxed px-4">
-                  Request submitted successfully. Admin approval required. Your registration request of <span className="text-white">@{username}</span> is currently awaiting validation.
+                <h3 className="text-lg font-black font-sans text-emerald-400 uppercase tracking-widest text-center">Protocol Logged</h3>
+                <p className="text-neutral-200 text-xs max-w-sm font-mono leading-relaxed px-4 text-center">
+                  Request sent for admin validation.
                 </p>
                 <div className="w-24 h-1.5 bg-neutral-950 rounded-full overflow-hidden">
                   <motion.div 
@@ -456,7 +456,9 @@ export default function Login() {
                       <div className="flex items-start gap-2">
                         <AlertTriangle size={14} className="flex-shrink-0 text-red-500 mt-0.5" />
                         <div>
-                          <span className="font-black uppercase tracking-wider block mb-1">Authorization Refused</span>
+                          <span className="font-black uppercase tracking-wider block mb-1 font-bold">
+                            {isLogin ? "Authorization Refused" : "Registration Refused"}
+                          </span>
                           {authError}
                         </div>
                       </div>

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { useStore, UserProfile, UserRole } from '../store';
+import { useStore, UserProfile, UserRole, PendingAccountRequest } from '../store';
+import { db } from '../firebase';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { 
   Users, ShieldCheck, User as UserIcon, Search, 
   Settings, AlertCircle, Clock, CheckCircle2, ShieldAlert, Shield, 
@@ -41,6 +43,36 @@ export default function ControlPanel() {
   // Editable stats for selected user
   const [editIntegrity, setEditIntegrity] = useState<number>(100);
   const [editWarnings, setEditWarnings] = useState<number>(0);
+
+  // Real-time self-contained subscription to pending requests
+  React.useEffect(() => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+
+    console.log("[CONTROL_PANEL] Registering realtime onSnapshot listener for pendingAccountRequests...");
+    const q = query(
+      collection(db, 'pendingAccountRequests'),
+      where('status', '==', 'pending')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      console.log("Validation listener active");
+      console.log("Pending requests:", snapshot.docs.length);
+
+      const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PendingAccountRequest));
+      list.sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      });
+      useStore.setState({ pendingAccountRequests: list });
+    }, (err) => {
+      console.error("[CONTROL_PANEL] Realtime subscription to pendingAccountRequests failed:", err.message);
+    });
+
+    return () => {
+      console.log("[CONTROL_PANEL] Unsubscribing from pendingAccountRequests...");
+      unsubscribe();
+    };
+  }, [currentUser]);
 
   React.useEffect(() => {
     if (viewingUser) {

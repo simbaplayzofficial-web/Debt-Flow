@@ -845,7 +845,7 @@ export const useStore = create<State>()((set, get) => ({
     set({ authError: null });
     const trimmedUsername = username.trim();
 
-    console.log(`[SIGNUP_START] Triggering signup request for username: ${trimmedUsername}`);
+    console.log(`[SIGNUP_START] Creating signup request... Triggering signup request for username: ${trimmedUsername}`);
 
     if (!trimmedUsername || !password) {
       set({ authError: "All fields are required." });
@@ -875,7 +875,7 @@ export const useStore = create<State>()((set, get) => ({
       if (pendingSnap.exists()) {
         const reqData = pendingSnap.data();
         if (reqData.status === 'pending') {
-          set({ authError: "Username already requested." });
+          set({ authError: "This username is already queued for validation." });
           return false;
         } else if (reqData.status === 'approved') {
           set({ authError: "Username already taken." });
@@ -886,6 +886,7 @@ export const useStore = create<State>()((set, get) => ({
         }
       }
 
+      console.log("Creating signup request...");
       // Store request in pendingAccountRequests Firestore collection
       await setDoc(doc(db, 'pendingAccountRequests', usernameLower), {
         id: usernameLower,
@@ -897,11 +898,15 @@ export const useStore = create<State>()((set, get) => ({
         createdAt: new Date().toISOString()
       });
 
-      console.log(`[SIGNUP_FIRESTORE] Account request logged successfully.`);
+      console.log("Firestore write success");
       return true;
     } catch (error: any) {
       console.error("[SIGNUP_FAILURE] Error during storage:", error);
-      set({ authError: error.message || "Account collection request failed." });
+      if (error.code === 'permission-denied' || (error.message && error.message.includes("permission"))) {
+        set({ authError: "Username already requested." });
+      } else {
+        set({ authError: error.message || "Account collection request failed." });
+      }
       return false;
     }
   },
@@ -2603,7 +2608,9 @@ onAuthStateChanged(auth, async (firebaseUser) => {
 
                 if (calculatedRole === 'admin') {
                   roleUnsubscribes.push(
-                    onSnapshot(query(collection(db, 'pendingAccountRequests'), orderBy('createdAt', 'desc')), (snapshot) => {
+                    onSnapshot(query(collection(db, 'pendingAccountRequests'), where('status', '==', 'pending')), (snapshot) => {
+                      console.log("Validation listener active");
+                      console.log("Pending requests:", snapshot.docs.length);
                       useStore.setState({ pendingAccountRequests: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PendingAccountRequest)) });
                     }, (err) => console.warn("Admin Listener - PendingAccountRequests Denied:", err.message))
                   );
