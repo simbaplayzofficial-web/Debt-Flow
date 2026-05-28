@@ -770,32 +770,18 @@ export const useStore = create<State>()((set, get) => ({
     const cleanUsername = isSpecialRequest ? input.replace('/special', '') : input;
     const pass = password.trim();
 
-    // Convert username to email format. If it has @, use as is, otherwise append @debtflow.com
     const email = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@debtflow.com`;
     const rawUsername = cleanUsername.includes('@') ? cleanUsername.split('@')[0] : cleanUsername;
     
-    console.log(`[LOGIN_START] Attempting login for username: ${cleanUsername} (using email: ${email}) (specialOps: ${isSpecialRequest})`);
+    console.log(`[LOGIN_START] Attempting login: ${email}`);
 
     try {
-      // Check for pending/rejected registration requests first
-      const usernameLower = rawUsername.toLowerCase();
-      const pendingDocRef = doc(db, 'pendingAccountRequests', usernameLower);
-      const pendingSnap = await getDoc(pendingDocRef);
-      if (pendingSnap.exists()) {
-        const reqData = pendingSnap.data();
-        if (reqData.status === 'pending') {
-          set({ authError: "Account awaiting validation." });
-          return false;
-        } else if (reqData.status === 'rejected') {
-          set({ authError: "Account request rejected." });
-          return false;
-        }
-      }
-
+      // 1. Attempt Firebase Authentication FIRST
       const userCredential = await signInWithEmailAndPassword(auth, email, pass);
       const user = userCredential.user;
-      console.log(`[LOGIN_SUCCESS] Auth successful for UID: ${user.uid}`);
+      console.log(`[LOGIN_SUCCESS] Auth successful: ${user.uid}`);
       
+      // Handle special ops access
       if (isSpecialRequest) {
         const uDoc = await getDoc(doc(db, 'users', user.uid));
         if (!uDoc.exists() || uDoc.data()?.specialOpsAccess !== true) {
@@ -808,41 +794,72 @@ export const useStore = create<State>()((set, get) => ({
         set({ specialOpsMode: false });
       }
 
-      // Check if user is suspended in firestore user document!
-      const userDocSnap = await getDoc(doc(db, 'users', user.uid));
-      if (userDocSnap.exists() && userDocSnap.data()?.status === 'suspended') {
+      // 2. Fetch User Profile & Auto-Repair/Provision if missing
+      const userDocRef = doc(db, 'users', user.uid);
+      let userDocSnap = await getDoc(userDocRef);
+      
+      if (!userDocSnap.exists()) {
+         console.warn(`[LOGIN] Profile missing for UID: ${user.uid}. Auto-provisioning...`);
+         const newUserDoc = {
+            id: user.uid,
+            uid: user.uid,
+            username: rawUsername,
+            email: email,
+            role: 'user', 
+            status: 'active',
+            warningCount: 0,
+            warnings: 0,
+            integrityScore: 100,
+            integrity: 100,
+            integrityLevel: 0,
+            debtOwed: 0,
+            debtToMe: 0,
+            ratingAverage: 5,
+            ratingCount: 0,
+            rating: 5,
+            totalLendingTransactions: 0,
+            isPermanentlyRemoved: false,
+            communityServicesNeeded: 0,
+            specialOpsAccess: false,
+            hasCompletedTutorial: false,
+            createdAt: serverTimestamp()
+          };
+          await setDoc(userDocRef, newUserDoc);
+          userDocSnap = await getDoc(userDocRef); // Re-fetch
+      }
+
+      // Check for suspension
+      if (userDocSnap.data()?.status === 'suspended') {
         await signOut(auth);
         set({ authError: "Account suspended by admin sovereignty." });
         return false;
       }
 
-      const docRef = doc(db, 'users', user.uid);
-      await updateDoc(docRef, {
-        lastLogin: serverTimestamp()
-      }).then(async () => {
-        console.log(`[LOGIN_FIRESTORE] Updated lastLogin timestamp in profile context for UID: ${user.uid}`);
-        await get().logActivity('LOGIN', `Logged into the platform`, user.uid, rawUsername, 'Auth', 'Control Panel');
-      }).catch(async (err) => {
-        console.warn(`[LOGIN_FIRESTORE_WARN] Could not update lastLogin in Firestore (could be newly created or missing doc):`, err.message);
-        await get().logActivity('LOGIN', `Logged into the platform`, user.uid, rawUsername, 'Auth', 'Control Panel');
-      });
+      await updateDoc(userDocRef, { lastLogin: serverTimestamp() });
+      await get().logActivity('LOGIN', `Logged into the platform`, user.uid, rawUsername, 'Auth', 'Control Panel');
 
       return true;
     } catch (error: any) {
-      console.error("[LOGIN_FAILURE] Error during authentication:", error);
-      let message = "Invalid username or password";
+      console.error("[LOGIN_FAILURE] Auth failed:", error);
       
-      if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-        message = "Invalid username or password";
-      } else if (error.code === 'auth/too-many-requests') {
-        message = "Too many failed login attempts. Please try again later.";
-      } else if (error.code === 'auth/network-request-failed') {
-        message = "Network connection failed. Please check your connectivity.";
-      } else if (error.message) {
-        message = error.message;
+      // 3. ONLY if auth fails, check pending requests
+      const usernameLower = rawUsername.toLowerCase();
+      const pendingDocRef = doc(db, 'pendingAccountRequests', usernameLower);
+      const pendingSnap = await getDoc(pendingDocRef);
+      if (pendingSnap.exists()) {
+        const reqData = pendingSnap.data();
+        if (reqData.status === 'pending') {
+          set({ authError: "Account awaiting validation." });
+        } else if (reqData.status === 'rejected') {
+          set({ authError: "Account request rejected." });
+        } else {
+          set({ authError: "Account request in invalid state." });
+        }
+        return false;
       }
       
-      set({ authError: message });
+      // Default Auth error
+      set({ authError: "Invalid username or password" });
       return false;
     }
   },
@@ -1930,7 +1947,7 @@ export const useStore = create<State>()((set, get) => ({
     const { initializeApp, deleteApp } = await import('firebase/app');
     const { getAuth, createUserWithEmailAndPassword, signOut: secondarySignOut } = await import('firebase/auth');
 
-    // Create secondary app instance so we don't disrupt the active admin session!
+    // Create secondary app instance
     const secondaryApp = initializeApp(firebaseConfig, `SecondaryApp_${requestId}`);
     const secondaryAuth = getAuth(secondaryApp);
 
@@ -1946,7 +1963,6 @@ export const useStore = create<State>()((set, get) => ({
     }
 
     try {
-      // 1. Create User Document in 'users' collection
       const userDocRef = doc(db, 'users', uid);
       const mappedRole: UserRole = requestedRole === 'Monitor' ? 'monitor' : requestedRole === 'Admin' ? 'admin' : 'user';
 
@@ -1972,17 +1988,19 @@ export const useStore = create<State>()((set, get) => ({
         isPermanentlyRemoved: false,
         communityServicesNeeded: 0,
         specialOpsAccess: false,
+        hasCompletedTutorial: false,
         createdAt: serverTimestamp()
       };
 
-      await setDoc(userDocRef, newUserDoc);
+      // Atomic update
+      const batch = writeBatch(db);
+      batch.set(userDocRef, newUserDoc);
+      batch.update(docRef, { status: 'approved' });
+      await batch.commit();
 
-      // 2. Mark pending request status as 'approved'
-      await updateDoc(docRef, { status: 'approved' });
-
-      // 3. Log administrative audit action
       await logActivity('ACCOUNT_APPROVED', { username, requestedRole, uid }, undefined, undefined, 'Admin Term');
     } catch (err: any) {
+      console.error("Approval Firestore Batch Failed:", err);
       throw new Error(`Database record initialization failed: ${err.message}`);
     }
   },
