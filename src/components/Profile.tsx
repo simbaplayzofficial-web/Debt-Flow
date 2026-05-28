@@ -42,6 +42,7 @@ export default function Profile() {
     updateUsername,
     updatePassword,
     anonymousComplaints,
+    calculateNetLedger,
   } = useStore();
 
   const [newUsername, setNewUsername] = useState(currentUser?.username || "");
@@ -64,6 +65,7 @@ export default function Profile() {
   const [targetAskerId, setTargetAskerId] = useState("");
   const [isCommunityServiceTx, setIsCommunityServiceTx] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [txError, setTxError] = useState<string | null>(null);
 
   const [ratingInput, setRatingInput] = useState<{
     txId: string;
@@ -105,6 +107,8 @@ export default function Profile() {
     0,
   );
 
+  const myNetLedger = calculateNetLedger(currentUser?.id || "");
+
   const myTransactions = transactions
     .filter(
       (t) => t.askerId === currentUser?.id || t.senderId === currentUser?.id,
@@ -124,15 +128,28 @@ export default function Profile() {
     e.preventDefault();
     if (!targetAskerId || isSubmitting) return;
 
+    setTxError(null);
     setIsSubmitting(true);
     try {
+      const debt = calculateDebt(pages);
+      if (!isCommunityServiceTx) {
+        const targetLedger = calculateNetLedger(targetAskerId);
+        const projected = targetLedger.netLedger - debt;
+        if (projected < -10) {
+          setTxError(`Action Blocked: Debt limit reached. @${users.find(u => u.id === targetAskerId)?.username} cannot go below -10 DB (Projected: ${projected} DB).`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       await addTransaction(targetAskerId, pages, isCommunityServiceTx);
       setShowAddModal(false);
       setPages(1);
       setTargetAskerId("");
       setIsCommunityServiceTx(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Submission UI Error:", err);
+      setTxError(err.message || "Failed to submit transaction.");
     } finally {
       setIsSubmitting(false);
     }
@@ -669,68 +686,169 @@ export default function Profile() {
 
         {/* User Sidebar Details */}
         <div className="space-y-8">
-          {/* Active Debt Relations */}
-          <section>
-            <h2 className="text-md font-bold uppercase tracking-widest text-neutral-500 mb-6 flex items-center gap-2">
-              <Wallet size={16} />
-              Net Ledger
-            </h2>
-            <div className="space-y-6">
-              {/* WHO OWES ME */}
-              {peopleWhoOweMe.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-black text-green-500 uppercase tracking-widest mb-3">
-                    People who owe me
-                  </p>
-                  <div className="space-y-2">
-                    {peopleWhoOweMe.map((item) => (
-                      <div
-                        key={item.user?.id}
-                        className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl flex items-center justify-between"
-                      >
-                        <p className="text-xs font-bold text-neutral-200">
-                          @{item.user?.username}
-                        </p>
-                        <p className="text-xs font-black text-green-500">
-                          {item.balance} DB
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+          {/* Real-time Net Ledger Module */}
+          <section className="bg-neutral-900 border border-neutral-850 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+            {/* Ambient indicator glow */}
+            <div className={`absolute -right-20 -top-20 w-40 h-40 rounded-full blur-3xl opacity-20 transition-all duration-700 ${
+              myNetLedger.netLedger > 0 
+                ? 'bg-emerald-500' 
+                : myNetLedger.netLedger <= -10 
+                  ? 'bg-red-600 animate-pulse' 
+                  : myNetLedger.netLedger <= -8 
+                    ? 'bg-amber-500'
+                    : 'bg-red-500'
+            }`} />
 
-              {/* WHO I OWE */}
-              {peopleIOwe.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-3">
-                    People I owe
-                  </p>
-                  <div className="space-y-2">
-                    {peopleIOwe.map((item) => (
-                      <div
-                        key={item.user?.id}
-                        className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl flex items-center justify-between"
-                      >
-                        <p className="text-xs font-bold text-neutral-200">
-                          @{item.user?.username}
-                        </p>
-                        <p className="text-xs font-black text-red-500">
-                          {item.balance} DB
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+            <div className="relative z-10 space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Wallet size={18} className={myNetLedger.netLedger > 0 ? 'text-emerald-400' : 'text-red-400'} />
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+                    Net Ledger
+                  </h2>
                 </div>
-              )}
+                <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md border tracking-wider transition-colors duration-300 ${
+                  myNetLedger.netLedger > 0
+                    ? 'text-emerald-400 bg-emerald-500/5 border-emerald-500/25'
+                    : myNetLedger.netLedger <= -10
+                      ? 'text-red-500 bg-red-500/10 border-red-500/45 font-extrabold animate-pulse'
+                      : myNetLedger.netLedger <= -8
+                        ? 'text-amber-500 bg-amber-500/5 border-amber-500/30'
+                        : 'text-red-400 bg-red-400/5 border-red-400/20'
+                }`}>
+                  {myNetLedger.netLedger > 0 ? 'Active Surplus' : myNetLedger.netLedger <= -10 ? 'At Debt Limit' : 'Active Deficit'}
+                </span>
+              </div>
 
-              {peopleWhoOweMe.length === 0 && peopleIOwe.length === 0 && (
-                <div className="bg-neutral-900/50 border border-neutral-800 border-dashed p-6 rounded-2xl text-center">
-                  <p className="text-neutral-500 text-[10px] font-bold uppercase tracking-widest">
-                    Balanced Ledger
-                  </p>
+              {/* Huge Balance Value display */}
+              <div className="text-center py-6 bg-neutral-950/40 rounded-2xl border border-neutral-850/60 relative overflow-hidden shadow-inner">
+                <p className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1.5">LIVE LEDGER BALANCE</p>
+                <p className={`text-5xl font-black italic tracking-tighter ${
+                  myNetLedger.netLedger > 0 
+                    ? 'text-emerald-400 [text-shadow:0_0_20px_rgba(16,185,129,0.3)]' 
+                    : myNetLedger.netLedger <= -10
+                      ? 'text-red-500 [text-shadow:0_0_25px_rgba(239,68,68,0.4)]'
+                      : myNetLedger.netLedger <= -8
+                        ? 'text-amber-500 [text-shadow:0_0_20px_rgba(245,158,11,0.3)]'
+                        : 'text-red-400 [text-shadow:0_0_20px_rgba(248,113,113,0.3)]'
+                }`}>
+                  {myNetLedger.netLedger > 0 ? `+${myNetLedger.netLedger}` : myNetLedger.netLedger} <span className="text-xl font-bold not-italic">DB</span>
+                </p>
+              </div>
+
+              {/* Status and limits */}
+              <div className="grid grid-cols-2 gap-3.5">
+                <div className="p-3 bg-neutral-950/20 border border-neutral-850 rounded-xl text-center">
+                  <p className="text-[8px] font-black text-neutral-500 uppercase tracking-widest mb-1">Owed To Me</p>
+                  <p className="text-sm font-black text-emerald-400">{myNetLedger.incomingOwed} DB</p>
                 </div>
-              )}
+                <div className="p-3 bg-neutral-950/20 border border-neutral-850 rounded-xl text-center">
+                  <p className="text-[8px] font-black text-neutral-500 uppercase tracking-widest mb-1">I Owe Others</p>
+                  <p className="text-sm font-black text-red-400">{myNetLedger.outgoingOwed} DB</p>
+                </div>
+              </div>
+
+              {/* Warning/Limit Indicators */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-[10px] text-neutral-400 font-bold uppercase tracking-wider pl-1">
+                  <span>Sovereign Threshold</span>
+                  <span className="font-mono text-neutral-500">-10 DB Limit</span>
+                </div>
+                {/* Visual horizontal bar */}
+                <div className="w-full h-2 bg-neutral-950 rounded-full overflow-hidden border border-neutral-850">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      myNetLedger.netLedger > 0 
+                        ? 'bg-emerald-500 w-[100%]' 
+                        : myNetLedger.netLedger <= -10 
+                          ? 'bg-red-600 animate-pulse' 
+                          : myNetLedger.netLedger <= -8 
+                            ? 'bg-amber-500' 
+                            : 'bg-red-500'
+                    }`}
+                    style={{ 
+                      width: myNetLedger.netLedger > 0 
+                        ? '100%' 
+                        : `${Math.max(5, Math.min(100, ((10 + myNetLedger.netLedger) / 10) * 100))}%` 
+                    }}
+                  />
+                </div>
+
+                {/* Status messages alerts */}
+                {myNetLedger.netLedger <= -10 ? (
+                  <div className="p-3.5 bg-red-950/40 border border-red-900/30 rounded-xl flex items-center gap-2.5 text-[10px] font-bold text-red-500 animate-pulse">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                    <span>Debt limit reached.</span>
+                  </div>
+                ) : myNetLedger.netLedger <= -8 ? (
+                  <div className="p-3.5 bg-amber-950/35 border border-amber-900/30 rounded-xl flex items-center gap-2.5 text-[10px] font-bold text-amber-500 animate-pulse">
+                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" />
+                    <span>Approaching debt limit.</span>
+                  </div>
+                ) : (
+                  <div className="p-3.5 bg-neutral-950/40 border border-neutral-850 rounded-xl flex items-center gap-2.5 text-[10px] font-bold text-neutral-400">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span>Ledge operations secured. Standard limits apply.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Lists of users from original debt relationships */}
+              <div className="pt-4 border-t border-neutral-850 space-y-4">
+                {peopleWhoOweMe.length > 0 && (
+                  <div>
+                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block mb-2">
+                      Secured Surplus Reciprocal Strings
+                    </span>
+                    <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
+                      {peopleWhoOweMe.map((item, idx) => (
+                        <div
+                          key={item.user?.id ? `owe-me-${item.user.id}` : `owe-me-${idx}`}
+                          className="bg-neutral-950 border border-neutral-850 px-3.5 py-2.5 rounded-xl flex items-center justify-between"
+                        >
+                          <span className="text-[11px] font-bold text-neutral-300">
+                            @{item.user?.username}
+                          </span>
+                          <span className="text-[11px] font-black text-emerald-400 font-mono">
+                            +{item.balance} DB
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {peopleIOwe.length > 0 && (
+                  <div>
+                    <span className="text-[10px] font-black text-red-400 uppercase tracking-widest block mb-2">
+                      Secured Deficit Obligation Strings
+                    </span>
+                    <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
+                      {peopleIOwe.map((item, idx) => (
+                        <div
+                          key={item.user?.id ? `i-owe-${item.user.id}` : `i-owe-${idx}`}
+                          className="bg-neutral-950 border border-neutral-850 px-3.5 py-2.5 rounded-xl flex items-center justify-between"
+                        >
+                          <span className="text-[11px] font-bold text-neutral-300">
+                            @{item.user?.username}
+                          </span>
+                          <span className="text-[11px] font-black text-red-400 font-mono">
+                            -{item.balance} DB
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {peopleWhoOweMe.length === 0 && peopleIOwe.length === 0 && (
+                  <div className="py-4 text-center">
+                    <p className="text-neutral-500 text-[10px] font-black uppercase tracking-widest italic">
+                      No Sovereign Debt Relations Found
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 
@@ -1031,8 +1149,11 @@ export default function Profile() {
                   </label>
                   <select
                     value={targetAskerId}
-                    onChange={(e) => setTargetAskerId(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm"
+                    onChange={(e) => {
+                      setTargetAskerId(e.target.value);
+                      setTxError(null);
+                    }}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm mb-2"
                     required
                   >
                     <option value="">Select a user...</option>
@@ -1047,6 +1168,50 @@ export default function Profile() {
                         </option>
                       ))}
                   </select>
+
+                  {/* LIVE TARGET STATUS IN THE MODAL */}
+                  {targetAskerId && (
+                    (() => {
+                      const ledger = calculateNetLedger(targetAskerId);
+                      const debt = calculateDebt(pages);
+                      const projected = isCommunityServiceTx ? ledger.netLedger : ledger.netLedger - debt;
+                      const isDanger = projected < -10;
+                      const isNearLimit = projected <= -8 && projected >= -10;
+
+                      return (
+                        <div className={`p-3.5 rounded-xl border text-[11px] font-bold space-y-1.5 transition-all mt-2 ${
+                          isDanger
+                            ? 'bg-red-950/40 border-red-900/30 text-red-400'
+                            : isNearLimit
+                              ? 'bg-amber-950/30 border-amber-900/30 text-amber-500 animate-pulse'
+                              : 'bg-neutral-950 border border-neutral-850 text-neutral-400'
+                        }`}>
+                          <div className="flex justify-between">
+                            <span>Balance before transaction:</span>
+                            <span className="font-mono">{ledger.netLedger > 0 ? `+${ledger.netLedger}` : ledger.netLedger} DB</span>
+                          </div>
+                          {!isCommunityServiceTx && (
+                            <div className="flex justify-between">
+                              <span>Balance after transaction:</span>
+                              <span className={`font-mono font-black ${isDanger ? 'text-red-500' : isNearLimit ? 'text-amber-500' : 'text-emerald-400'}`}>
+                                {projected > 0 ? `+${projected}` : projected} DB
+                              </span>
+                            </div>
+                          )}
+                          {isDanger && (
+                            <p className="text-[10px] text-red-500 font-extrabold uppercase tracking-wider pt-1">
+                              ⚠️ Action Blocked: Borrower will exceed debt limit of -10!
+                            </p>
+                          )}
+                          {isNearLimit && !isDanger && (
+                            <p className="text-[10px] text-amber-500 font-extrabold uppercase tracking-wider pt-1">
+                              ⚠️ Warning: Borrower approaching debt limit!
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">
@@ -1056,7 +1221,10 @@ export default function Profile() {
                     type="number"
                     min={1}
                     value={pages}
-                    onChange={(e) => setPages(parseInt(e.target.value))}
+                    onChange={(e) => {
+                      setPages(parseInt(e.target.value) || 1);
+                      setTxError(null);
+                    }}
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm font-mono text-center"
                     required
                   />
@@ -1070,6 +1238,12 @@ export default function Profile() {
                     {calculateDebt(pages)} DB
                   </p>
                 </div>
+
+                {txError && (
+                  <div className="p-3 bg-red-950/40 border border-red-900/30 text-red-500 text-xs font-bold rounded-xl uppercase tracking-wide text-center animate-pulse">
+                    {txError}
+                  </div>
+                )}
 
                 <div className="flex gap-3 pt-4">
                   <button

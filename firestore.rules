@@ -8,13 +8,15 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function isAdmin() { 
       return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
     }
     function isMonitor() {
-      return isSignedIn() && (
-        isAdmin() ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "monitor"
-      );
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "monitor"
+        );
     }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     function isSpyOwner() {
@@ -86,6 +88,12 @@ service cloud.firestore {
       allow create: if isSignedIn() && incoming().userId == request.auth.uid && incoming().status == 'pending';
       allow update: if isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
       allow delete: if isAdmin();
+    }
+
+    match /pendingAccountRequests/{requestId} {
+      allow create: if true;
+      allow get: if true;
+      allow list, update, delete: if isAdmin();
     }
 
     match /roles_config/global {
@@ -214,7 +222,7 @@ service cloud.firestore {
     }
 
     match /rewards/{rewardId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isMonitor());
+      allow read: if isSignedIn();
       allow update: if isSignedIn() && resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['claimed', 'rewardChosen', 'timestamp']);
       allow create, delete: if isAdmin();
     }
@@ -251,7 +259,7 @@ service cloud.firestore {
     // Activity Logs
     // -------------------------------------------------------------------------
     match /activityLogs/{logId} {
-      allow read: if isAdmin();
+      allow read: if isMonitor();
       allow create: if isSignedIn() && 
                     (incoming().userId == request.auth.uid || incoming().actor == request.auth.uid) && 
                     incoming().timestamp == request.time &&
@@ -272,7 +280,7 @@ service cloud.firestore {
     // Debt Ledger
     // -------------------------------------------------------------------------
     match /debts/{debtId} {
-      allow read: if isSignedIn() && (resource.data.user1Id == request.auth.uid || resource.data.user2Id == request.auth.uid || isMonitor());
+      allow read: if isSignedIn();
       allow write: if isMonitor() || (isSignedIn() && (incoming().user1Id == request.auth.uid || incoming().user2Id == request.auth.uid));
     }
 

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { db, auth } from './firebase';
+import firebaseConfig from '../firebase-applet-config.json';
 import { 
   collection, doc, setDoc, onSnapshot, updateDoc, writeBatch, 
   getDoc, query, where, orderBy, limit, Timestamp, getDocs,
@@ -148,6 +149,10 @@ export type ActivityLog = {
   location?: string;
   details: any;
   timestamp: any;
+  role?: string;
+  severity?: string;
+  activityType?: string;
+  description?: string;
 };
 
 export type AdjustmentStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED';
@@ -236,6 +241,16 @@ export type AnonymousComplaint = {
   anonymousThreadId?: string | null;
   complainantUid?: string | null;
   internalNotes?: string;
+};
+
+export type PendingAccountRequest = {
+  id: string;
+  username: string;
+  generatedEmail: string;
+  password?: string;
+  requestedRole: 'Standard' | 'Monitor';
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string; // ISO String
 };
 
 export type GroupId = 'studying' | 'monitoring' | 'chatting' | 'resolving' | 'complaints';
@@ -392,6 +407,7 @@ type State = {
   roleRequests: RoleRequest[];
   resolvingDeck: ResolvingCase[];
   anonymousComplaints: AnonymousComplaint[];
+  pendingAccountRequests: PendingAccountRequest[];
   systemStatus: SystemStatus | null;
   activityLogs: ActivityLog[];
   debtAdjustments: DebtAdjustment[];
@@ -430,6 +446,12 @@ type State = {
   rejectTransaction: (txId: string) => Promise<void>;
   submitRating: (txId: string, rating: number) => Promise<void>;
   forgiveDebt: (borrowerId: string, amount: number) => Promise<void>;
+  calculateNetLedger: (userId: string) => {
+    incomingOwed: number;
+    outgoingOwed: number;
+    netLedger: number;
+    limitReached: boolean;
+  };
   
   // Admin Actions
   postAnnouncement: (title: string, content: string, section: AnnouncementSection) => Promise<void>;
@@ -448,6 +470,10 @@ type State = {
   updateRolePermissions: (roleId: string, permissions: string[]) => Promise<void>;
   approveDebtAdjustment: (adjId: string) => Promise<void>;
   rejectDebtAdjustment: (adjId: string) => Promise<void>;
+  approvePendingRequest: (requestId: string) => Promise<void>;
+  rejectPendingRequest: (requestId: string) => Promise<void>;
+  toggleUserSuspension: (userId: string) => Promise<void>;
+  updateUserStats: (userId: string, integrity: number, warnings: number) => Promise<void>;
  
   // Special Ops
   setSpecialOpsMode: (val: boolean) => void;
@@ -510,6 +536,7 @@ export const useStore = create<State>()((set, get) => ({
   roleRequests: [],
   resolvingDeck: [],
   anonymousComplaints: [],
+  pendingAccountRequests: [],
   systemStatus: null,
   activityLogs: [],
   debtAdjustments: [],
@@ -554,14 +581,153 @@ export const useStore = create<State>()((set, get) => ({
   logActivity: async (action, details, userId, username, type, location) => {
     let finalUserId = userId;
     let finalUsername = username;
+    let finalRole = 'user';
+
+    const state = get();
+    const currentUser = state.currentUser;
 
     if (!finalUserId || !finalUsername) {
-      const { currentUser } = get();
       if (!currentUser) return;
       finalUserId = currentUser.id;
       finalUsername = currentUser.username;
+      finalRole = currentUser.role || 'user';
+    } else {
+      const foundUser = state.users.find(u => u.id === finalUserId);
+      if (foundUser) {
+        finalRole = foundUser.role || 'user';
+      }
     }
-    
+
+    let finalLocation = location || type || 'System';
+    const actionUpper = (action || '').toUpperCase();
+
+    // Redaction for secret/classified ops
+    const hasSpecialKeywords = 
+      finalLocation.toLowerCase().includes('special') || 
+      finalLocation.toLowerCase().includes('spy') ||
+      actionUpper.includes('SPECIAL_OPS') ||
+      actionUpper.includes('RECRUITMENT') ||
+      actionUpper.includes('SPY');
+
+    if (hasSpecialKeywords) {
+      finalLocation = 'Restricted Module';
+    }
+
+    // Determine severity
+    let severity: 'info' | 'warning' | 'critical' = 'info';
+    if (
+      actionUpper.includes('SUSPEND') || 
+      actionUpper.includes('BAN') || 
+      actionUpper.includes('REJECT') || 
+      actionUpper.includes('DELETE') || 
+      actionUpper.includes('WARNING_ISSUED') ||
+      actionUpper.includes('CRITICAL') ||
+      actionUpper.includes('RESET') ||
+      actionUpper.includes('PURGE')
+    ) {
+      severity = 'critical';
+    } else if (
+      actionUpper.includes('WARNING') || 
+      actionUpper.includes('DISPUTE') || 
+      actionUpper.includes('UPDATE') ||
+      actionUpper.includes('CLAIM') ||
+      actionUpper.includes('ROLE_RESOLVED') ||
+      actionUpper.includes('PERMISSIONS')
+    ) {
+      severity = 'warning';
+    }
+
+    // Determine dynamic human-readable description
+    let description = '';
+    if (hasSpecialKeywords) {
+      description = 'Accessed classified subsystem';
+    } else if (typeof details === 'string') {
+      description = details;
+    } else if (details && typeof details === 'object') {
+      if (details.description) {
+        description = details.description;
+      } else {
+        switch (actionUpper) {
+          case 'LOGIN':
+            description = 'Logged into the platform';
+            break;
+          case 'LOGOUT':
+            description = `Logged out of the platform`;
+            break;
+          case 'CREATE_TRANSACTION':
+            description = `Lended ${details.pages || 0} pages of work to @${details.asker || 'user'}`;
+            break;
+          case 'APPROVE_TRANSACTION':
+            description = `Approved lended work`;
+            break;
+          case 'REJECT_TRANSACTION':
+            description = `Rejected lended work`;
+            break;
+          case 'RATE_TRANSACTION':
+            description = `Given feedback rate of ${details.rating || 5} Star`;
+            break;
+          case 'FORGIVE_DEBT':
+            description = `Approved debt forgiveness for $${details.amount || 0}`;
+            break;
+          case 'ANNOUNCEMENT_CREATED':
+            description = `Created new announcement: "${details.title || 'untitled'}"`;
+            break;
+          case 'ANNOUNCEMENT_DELETED':
+            description = `Deleted announcement: "${details.title || ''}"`;
+            break;
+          case 'WARNING_ISSUED':
+            description = `Issued LEVEL ${details.level || 1} warning to @${details.target || 'user'}`;
+            break;
+          case 'WARNING_REVOKED':
+            description = `Revoked warning from @${details.target || 'user'}`;
+            break;
+          case 'ACCOUNT_APPROVED':
+            description = `Approved account verification for @${details.username || 'user'}`;
+            break;
+          case 'ACCOUNT_REJECTED':
+            description = `Rejected account registration for @${details.username || 'user'}`;
+            break;
+          case 'USER_SUSPENDED':
+            description = `Suspended platform access for @${details.username || 'user'}`;
+            break;
+          case 'USER_ACTIVATED':
+            description = `Restored database clearance for @${details.username || 'user'}`;
+            break;
+          case 'ROLE_REQUEST':
+            description = `Submitted application for higher clearance`;
+            break;
+          case 'ROLE_RESOLVED':
+            description = `${details.approved ? 'Approved' : 'Rejected'} ${details.target || 'user'}'s promotion request`;
+            break;
+          case 'VOTE_CREATED':
+            description = `Initiated community decision matrix: "${details.title || 'Untitled'}"`;
+            break;
+          case 'VOTE_SUBMITTED':
+            description = `Logged vote selection on initiative #${details.voteId ? details.voteId.substring(0,8) : ''}`;
+            break;
+          case 'GROUP_POST':
+            description = `Submitted publication to ${details.groupId || 'community'}`;
+            break;
+          case 'BILL_FILED':
+            description = `Filed claim: "${details.title || 'Untitled'}"`;
+            break;
+          case 'RESOLVE_BILL':
+            description = `Resolved and closed claim record`;
+            break;
+          default:
+            description = `${action.replace(/_/g, ' ').toLowerCase()}`;
+        }
+      }
+    } else {
+      description = action ? action.replace(/_/g, ' ').toLowerCase() : 'system activity';
+    }
+
+    // Capitalize first letter of description
+    if (description) {
+      description = description.charAt(0).toUpperCase() + description.slice(1);
+    }
+
+    // Write to Firestore
     try {
       const { serverTimestamp } = await import('firebase/firestore');
       const id = uuidv4();
@@ -569,10 +735,11 @@ export const useStore = create<State>()((set, get) => ({
         id,
         userId: finalUserId,
         username: finalUsername,
-        type: type || 'system',
-        action,
-        location: location || 'System',
-        details,
+        role: finalRole,
+        location: finalLocation,
+        activityType: action,
+        description: description,
+        severity: severity,
         timestamp: serverTimestamp()
       });
     } catch (error) {
@@ -599,10 +766,26 @@ export const useStore = create<State>()((set, get) => ({
 
     // Convert username to email format. If it has @, use as is, otherwise append @debtflow.com
     const email = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@debtflow.com`;
+    const rawUsername = cleanUsername.includes('@') ? cleanUsername.split('@')[0] : cleanUsername;
     
     console.log(`[LOGIN_START] Attempting login for username: ${cleanUsername} (using email: ${email}) (specialOps: ${isSpecialRequest})`);
 
     try {
+      // Check for pending/rejected registration requests first
+      const usernameLower = rawUsername.toLowerCase();
+      const pendingDocRef = doc(db, 'pendingAccountRequests', usernameLower);
+      const pendingSnap = await getDoc(pendingDocRef);
+      if (pendingSnap.exists()) {
+        const reqData = pendingSnap.data();
+        if (reqData.status === 'pending') {
+          set({ authError: "Account awaiting validation." });
+          return false;
+        } else if (reqData.status === 'rejected') {
+          set({ authError: "Account request rejected." });
+          return false;
+        }
+      }
+
       const userCredential = await signInWithEmailAndPassword(auth, email, pass);
       const user = userCredential.user;
       console.log(`[LOGIN_SUCCESS] Auth successful for UID: ${user.uid}`);
@@ -619,13 +802,23 @@ export const useStore = create<State>()((set, get) => ({
         set({ specialOpsMode: false });
       }
 
+      // Check if user is suspended in firestore user document!
+      const userDocSnap = await getDoc(doc(db, 'users', user.uid));
+      if (userDocSnap.exists() && userDocSnap.data()?.status === 'suspended') {
+        await signOut(auth);
+        set({ authError: "Account suspended by admin sovereignty." });
+        return false;
+      }
+
       const docRef = doc(db, 'users', user.uid);
       await updateDoc(docRef, {
         lastLogin: serverTimestamp()
-      }).then(() => {
+      }).then(async () => {
         console.log(`[LOGIN_FIRESTORE] Updated lastLogin timestamp in profile context for UID: ${user.uid}`);
-      }).catch(err => {
+        await get().logActivity('LOGIN', `Logged into the platform`, user.uid, rawUsername, 'Auth', 'Control Panel');
+      }).catch(async (err) => {
         console.warn(`[LOGIN_FIRESTORE_WARN] Could not update lastLogin in Firestore (could be newly created or missing doc):`, err.message);
+        await get().logActivity('LOGIN', `Logged into the platform`, user.uid, rawUsername, 'Auth', 'Control Panel');
       });
 
       return true;
@@ -649,11 +842,10 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   signUp: async (username, _unusedEmail, password, requestedRole) => {
-    const { logActivity } = get();
     set({ authError: null });
     const trimmedUsername = username.trim();
 
-    console.log(`[SIGNUP_START] Triggering signup for username: ${trimmedUsername}`);
+    console.log(`[SIGNUP_START] Triggering signup request for username: ${trimmedUsername}`);
 
     if (!trimmedUsername || !password) {
       set({ authError: "All fields are required." });
@@ -676,88 +868,40 @@ export const useStore = create<State>()((set, get) => ({
     console.log(`[SIGNUP] Generated email address internally: ${derivedEmail}`);
 
     try {
-      // 1. Explicit Check in Firestore for Case-Insensitive Username Uniqueness
-      const usersRef = collection(db, 'users');
-      const q1 = query(usersRef, where('username', '==', trimmedUsername));
-      const q2 = query(usersRef, where('username', '==', trimmedUsername.toLowerCase()));
-      const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-      
-      if (!snap1.empty || !snap2.empty) {
-        console.warn(`[SIGNUP_WARN] Duplicate username found. Registration aborted for: ${trimmedUsername}`);
-        set({ authError: "Username already taken." });
-        return false;
+      const usernameLower = trimmedUsername.toLowerCase();
+      const pendingDocRef = doc(db, 'pendingAccountRequests', usernameLower);
+      const pendingSnap = await getDoc(pendingDocRef);
+
+      if (pendingSnap.exists()) {
+        const reqData = pendingSnap.data();
+        if (reqData.status === 'pending') {
+          set({ authError: "Username already requested." });
+          return false;
+        } else if (reqData.status === 'approved') {
+          set({ authError: "Username already taken." });
+          return false;
+        } else if (reqData.status === 'rejected') {
+          set({ authError: "Username request rejected." });
+          return false;
+        }
       }
 
-      // 2. Create Auth Account
-      console.log(`[SIGNUP_AUTH] Creating Auth user in Firebase Authentication: ${derivedEmail}`);
-      const { user } = await createUserWithEmailAndPassword(auth, derivedEmail, password);
-      console.log(`[SIGNUP_AUTH_SUCCESS] Auth successful: user.uid is ${user.uid}`);
-      
-      // Force token refresh
-      await user.getIdToken(true);
-
-      // 3. Store Profile
-      const { serverTimestamp } = await import('firebase/firestore');
-      
-      // Map roles
-      let initialRole: UserRole = 'user';
-      if (requestedRole === 'monitor') {
-        initialRole = 'monitor';
-      } else if (requestedRole === 'admin') {
-        initialRole = 'admin';
-      }
-      
-      const profile: UserProfile = {
-        id: user.uid,
-        uid: user.uid,
+      // Store request in pendingAccountRequests Firestore collection
+      await setDoc(doc(db, 'pendingAccountRequests', usernameLower), {
+        id: usernameLower,
         username: trimmedUsername,
-        email: derivedEmail,
-        role: initialRole, 
-        requestedRole: null,
-        status: 'active',
-        warningCount: 0,
-        warnings: 0,
-        integrityScore: 100,
-        integrity: 100,
-        integrityLevel: 0,
-        debtOwed: 0,
-        debtToMe: 0,
-        ratingAverage: 5,
-        ratingCount: 0,
-        rating: 5,
-        totalLendingTransactions: 0,
-        isPermanentlyRemoved: false,
-        communityServicesNeeded: 0,
-        isCommunityServiceParticipant: false,
-        createdAt: serverTimestamp(),
-        lastLogin: serverTimestamp()
-      };
-      
-      console.log(`[SIGNUP_FIRESTORE] Writing user document to Firestore for UID ${user.uid}:`, profile);
-      await setDoc(doc(db, 'users', user.uid), profile);
-      console.log(`[SIGNUP_FIRESTORE_SUCCESS] Document creation successful in Firestore.`);
+        generatedEmail: derivedEmail,
+        password: password,
+        requestedRole: requestedRole === 'monitor' ? 'Monitor' : requestedRole === 'admin' ? 'Admin' : 'Standard',
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      });
 
-      await logActivity('SIGNUP', `New account created: @${trimmedUsername} as ${initialRole}`, user.uid, trimmedUsername, 'Auth');
+      console.log(`[SIGNUP_FIRESTORE] Account request logged successfully.`);
       return true;
     } catch (error: any) {
-      console.error("[SIGNUP_FAILURE] Error during account registration flow:", error);
-      let message = "Account creation failed";
-      
-      if (error.code === 'auth/email-already-in-use') {
-        message = "Username already exists.";
-      } else if (error.code === 'auth/weak-password') {
-        message = "Password must be at least 6 characters and sufficiently secure.";
-      } else if (error.code === 'auth/invalid-email') {
-        message = "Invalid email format.";
-      } else if (error.code === 'auth/network-request-failed') {
-        message = "Network connection failed. Please check your connectivity.";
-      } else if (error.code === 'permission-denied' || error.message?.includes('permission-denied')) {
-        message = "Security permissions denied profile creation. Checking system security configuration.";
-      } else if (error.message) {
-        message = error.message;
-      }
-      
-      set({ authError: message });
+      console.error("[SIGNUP_FAILURE] Error during storage:", error);
+      set({ authError: error.message || "Account collection request failed." });
       return false;
     }
   },
@@ -772,13 +916,29 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   addTransaction: async (askerId, pages, isCommunityService) => {
-    const { currentUser, users, calculateDebt, logActivity } = get();
+    const { currentUser, users, calculateDebt, logActivity, calculateNetLedger } = get();
     if (!currentUser) throw new Error("UNAUTHORIZED");
 
     const asker = users.find(u => u.id === askerId);
     if (!asker) throw new Error("USER_NOT_FOUND");
     
     const debt = calculateDebt(pages);
+
+    if (!isCommunityService) {
+      const askerLedger = calculateNetLedger(askerId);
+      const projectedLedger = askerLedger.netLedger - debt;
+      if (projectedLedger < -10) {
+        await logActivity('DEBT_LIMIT_REACHED', {
+          targetUserId: askerId,
+          targetUsername: asker.username,
+          debtAttempted: debt,
+          currentLedger: askerLedger.netLedger,
+          projectedLedger,
+          description: `@${asker.username} reached the debt limit. Blocked request of ${debt} DB.`
+        }, currentUser.id, currentUser.username, 'Profile', 'Profile');
+        throw new Error(`Debt limit reached. @${asker.username} cannot go below -10 on Net Ledger (Projected: ${projectedLedger}).`);
+      }
+    }
     
     try {
       const transactionData = {
@@ -801,11 +961,28 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   approveTransaction: async (txId) => {
-    const { currentUser, logActivity, transactions, users } = get();
+    const { currentUser, logActivity, transactions, users, calculateNetLedger } = get();
     if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) return;
     
     const tx = transactions.find(t => t.id === txId);
     if (!tx || tx.status !== 'pending') return;
+
+    if (!tx.isCommunityService) {
+      const borrowerId = tx.askerId;
+      const borrowerLedger = calculateNetLedger(borrowerId);
+      const projected = borrowerLedger.netLedger - tx.debt;
+      if (projected < -10) {
+        await logActivity('DEBT_LIMIT_REACHED', { 
+          txId, 
+          borrowerId, 
+          amount: tx.debt,
+          currentLedger: borrowerLedger.netLedger,
+          projectedLedger: projected,
+          description: `Approval blocked: User @${users.find(u => u.id === borrowerId)?.username || borrowerId} would exceed debt limit of -10 (Projected: ${projected}).`
+        }, undefined, undefined, 'Monitor Workspace', 'Profile');
+        throw new Error(`Debt limit reached. Borrower would go below -10 on Net Ledger (Projected: ${projected}).`);
+      }
+    }
 
     try {
       const batch = writeBatch(db);
@@ -857,6 +1034,17 @@ export const useStore = create<State>()((set, get) => ({
            batch.update(doc(db, 'users', lender.id), { debtToMe: (lender.debtToMe || 0) + tx.debt });
            batch.update(doc(db, 'users', borrower.id), { debtOwed: (borrower.debtOwed || 0) + tx.debt });
         }
+
+        // Log "major ledger shifts" if debt >= 5
+        if (tx.debt >= 5) {
+          await logActivity('MAJOR_LEDGER_SHIFT', {
+            targetUserId: borrowerId,
+            targetUsername: borrower?.username || borrowerId,
+            shiftAmount: -tx.debt,
+            projectedLedger: newBalance,
+            description: `@${borrower?.username || borrowerId} experienced a major shift of -${tx.debt} DB on Ledger.`
+          }, undefined, undefined, 'Monitor Workspace', 'Profile');
+        }
       }
       
       const { recalculateLeaderboard } = get();
@@ -865,6 +1053,7 @@ export const useStore = create<State>()((set, get) => ({
       await logActivity('APPROVE_TRANSACTION', { txId, debt: tx.debt }, undefined, undefined, 'Monitor Workspace');
     } catch (error: any) {
       console.error("APPROVE_ERROR:", error);
+      throw error;
     }
   },
 
@@ -908,7 +1097,7 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   forgiveDebt: async (borrowerId, amount) => {
-    const { currentUser, users, logActivity } = get();
+    const { currentUser, users, logActivity, calculateNetLedger } = get();
     if (!currentUser) return;
 
     const borrower = users.find(u => u.id === borrowerId);
@@ -953,7 +1142,63 @@ export const useStore = create<State>()((set, get) => ({
     const { recalculateLeaderboard } = get();
     await batch.commit();
     await recalculateLeaderboard();
+
+    // Log Repayment Record
+    await logActivity('DEBT_REPAYMENT_RECORDED', {
+      debtRef: debtId,
+      borrowerId,
+      borrowerUsername: borrower.username,
+      lenderId,
+      lenderUsername: currentUser.username,
+      amount,
+      description: `@${currentUser.username} recorded repayment of ${amount} DB from @${borrower.username}.`
+    }, undefined, undefined, 'Profile', 'Profile');
+
+    // Handle major ledger shift logging
+    const borrowerLedger = calculateNetLedger(borrowerId);
+    if (amount >= 5) {
+      await logActivity('MAJOR_LEDGER_SHIFT', {
+        targetUserId: borrowerId,
+        targetUsername: borrower.username,
+        shiftAmount: amount,
+        afterLedger: borrowerLedger.netLedger,
+        description: `@${borrower.username} had a major ledger shift of +${amount} DB (Repayment/Forgiveness).`
+      }, undefined, undefined, 'Profile', 'Profile');
+    }
+
     await logActivity('FORGIVE_DEBT', { borrowerId, amount }, undefined, undefined, 'Profile');
+  },
+
+  calculateNetLedger: (userId) => {
+    const { debts } = get();
+    let incomingOwed = 0;
+    let outgoingOwed = 0;
+
+    debts.forEach((d) => {
+      if (d.user1Id === userId) {
+        if (d.netBalance > 0) {
+          incomingOwed += d.netBalance;
+        } else if (d.netBalance < 0) {
+          outgoingOwed += Math.abs(d.netBalance);
+        }
+      } else if (d.user2Id === userId) {
+        if (d.netBalance < 0) {
+          incomingOwed += Math.abs(d.netBalance);
+        } else if (d.netBalance > 0) {
+          outgoingOwed += d.netBalance;
+        }
+      }
+    });
+
+    const netLedger = incomingOwed - outgoingOwed;
+    const limitReached = netLedger <= -10;
+
+    return {
+      incomingOwed,
+      outgoingOwed,
+      netLedger,
+      limitReached
+    };
   },
 
   postAnnouncement: async (title, content, section) => {
@@ -1641,6 +1886,141 @@ export const useStore = create<State>()((set, get) => ({
     }
   },
 
+  approvePendingRequest: async (requestId: string) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || currentUser.role !== 'admin') {
+      throw new Error("UNAUTHORIZED: Only sovereign admins can validate requests.");
+    }
+
+    const docRef = doc(db, 'pendingAccountRequests', requestId);
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) throw new Error("Approval request not found.");
+
+    const requestData = docSnap.data();
+    if (requestData.status !== 'pending') {
+      throw new Error(`Request has already been evaluated: ${requestData.status}`);
+    }
+
+    const { username, generatedEmail, password, requestedRole } = requestData;
+
+    const { initializeApp, deleteApp } = await import('firebase/app');
+    const { getAuth, createUserWithEmailAndPassword, signOut: secondarySignOut } = await import('firebase/auth');
+
+    // Create secondary app instance so we don't disrupt the active admin session!
+    const secondaryApp = initializeApp(firebaseConfig, `SecondaryApp_${requestId}`);
+    const secondaryAuth = getAuth(secondaryApp);
+
+    let uid = '';
+    try {
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, generatedEmail, password);
+      uid = userCredential.user.uid;
+      await secondarySignOut(secondaryAuth);
+      await deleteApp(secondaryApp);
+    } catch (authError: any) {
+      try { await deleteApp(secondaryApp); } catch {}
+      throw new Error(`Auth creation failed: ${authError.message}`);
+    }
+
+    try {
+      // 1. Create User Document in 'users' collection
+      const userDocRef = doc(db, 'users', uid);
+      const mappedRole: UserRole = requestedRole === 'Monitor' ? 'monitor' : requestedRole === 'Admin' ? 'admin' : 'user';
+
+      const newUserDoc = {
+        id: uid,
+        uid: uid,
+        username: username,
+        email: generatedEmail,
+        role: mappedRole,
+        requestedRole: null,
+        status: 'active',
+        warningCount: 0,
+        warnings: 0,
+        integrityScore: 100,
+        integrity: 100,
+        integrityLevel: 0,
+        debtOwed: 0,
+        debtToMe: 0,
+        ratingAverage: 5,
+        ratingCount: 0,
+        rating: 5,
+        totalLendingTransactions: 0,
+        isPermanentlyRemoved: false,
+        communityServicesNeeded: 0,
+        specialOpsAccess: false,
+        createdAt: serverTimestamp()
+      };
+
+      await setDoc(userDocRef, newUserDoc);
+
+      // 2. Mark pending request status as 'approved'
+      await updateDoc(docRef, { status: 'approved' });
+
+      // 3. Log administrative audit action
+      await logActivity('ACCOUNT_APPROVED', { username, requestedRole, uid }, undefined, undefined, 'Admin Term');
+    } catch (err: any) {
+      throw new Error(`Database record initialization failed: ${err.message}`);
+    }
+  },
+
+  rejectPendingRequest: async (requestId: string) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || currentUser.role !== 'admin') {
+      throw new Error("UNAUTHORIZED: Only sovereign admins can validate requests.");
+    }
+
+    const docRef = doc(db, 'pendingAccountRequests', requestId);
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) throw new Error("Approval request not found.");
+
+    const requestData = docSnap.data();
+    if (requestData.status !== 'pending') {
+      throw new Error(`Request has already been evaluated: ${requestData.status}`);
+    }
+
+    // Mark pending request status as 'rejected'
+    await updateDoc(docRef, { status: 'rejected' });
+
+    // Log administrative action
+    await logActivity('ACCOUNT_REJECTED', { username: requestData.username, requestedRole: requestData.requestedRole }, undefined, undefined, 'Admin Term');
+  },
+
+  toggleUserSuspension: async (userId: string) => {
+    const { currentUser, logActivity, users } = get();
+    if (!currentUser || currentUser.role !== 'admin') throw new Error("UNAUTHORIZED: Admin access required.");
+    
+    const target = users.find(u => u.id === userId);
+    if (!target) throw new Error("User not found in registry.");
+
+    const newStatus = target.status === 'suspended' ? 'active' : 'suspended';
+    await updateDoc(doc(db, 'users', userId), { status: newStatus });
+    await logActivity(newStatus === 'suspended' ? 'USER_SUSPENDED' : 'USER_ACTIVATED', { targetId: userId, username: target.username }, undefined, undefined, 'Admin Term');
+  },
+
+  updateUserStats: async (userId: string, integrity: number, warnings: number) => {
+    const { currentUser, logActivity, users } = get();
+    if (!currentUser || currentUser.role !== 'admin') throw new Error("UNAUTHORIZED: Admin access required.");
+
+    const target = users.find(u => u.id === userId);
+    if (!target) throw new Error("User not found in registry.");
+
+    const docRef = doc(db, 'users', userId);
+    await updateDoc(docRef, {
+      integrity: Number(integrity),
+      integrityScore: Number(integrity),
+      warningCount: Number(warnings),
+      warnings: Number(warnings),
+      integrityLevel: Number(warnings)
+    });
+
+    await logActivity('ADMIN_STATS_UPDATE', { 
+      targetUserId: userId, 
+      targetUsername: target.username, 
+      integrity: Number(integrity), 
+      warnings: Number(warnings) 
+    }, undefined, undefined, 'Admin Term');
+  },
+
   updateRolePermissions: async (roleId, permissions) => {
     const { currentUser, logActivity } = get();
     if (!currentUser || currentUser.role !== 'admin') throw new Error("UNAUTHORIZED");
@@ -2171,7 +2551,7 @@ onAuthStateChanged(auth, async (firebaseUser) => {
                 
                 roleUnsubscribes.push(
                   onSnapshot(collection(db, 'users', firebaseUser.uid, 'warnings'), (snapshot) => {
-                    useStore.setState({ userWarnings: snapshot.docs.map(d => d.data() as Warning) });
+                    useStore.setState({ userWarnings: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Warning)) });
                   }, (err) => console.warn("Warnings Listener Denied:", err.message))
                 );
 
@@ -2201,7 +2581,10 @@ onAuthStateChanged(auth, async (firebaseUser) => {
                     }, (err) => console.warn("Staff Listener - Monitoring Posts Access Denied:", err.message)),
                     onSnapshot(query(collection(db, 'debtAdjustments'), orderBy('requestedAt', 'desc')), (snapshot) => {
                       useStore.setState({ debtAdjustments: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as DebtAdjustment)) });
-                    }, (err) => console.warn("Staff Listener - Debt Adjustments Access Denied:", err.message))
+                    }, (err) => console.warn("Staff Listener - Debt Adjustments Access Denied:", err.message)),
+                    onSnapshot(query(collection(db, 'activityLogs'), orderBy('timestamp', 'desc'), limit(200)), (snapshot) => {
+                      useStore.setState({ activityLogs: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ActivityLog)) });
+                    }, (err) => console.warn("Staff Listener - ActivityLogs Access Denied:", err.message))
                   );
                 } else {
                   // Standard users only see their own debts, rewards, and anonymous complaints
@@ -2220,9 +2603,9 @@ onAuthStateChanged(auth, async (firebaseUser) => {
 
                 if (calculatedRole === 'admin') {
                   roleUnsubscribes.push(
-                    onSnapshot(query(collection(db, 'activityLogs'), orderBy('timestamp', 'desc'), limit(100)), (snapshot) => {
-                      useStore.setState({ activityLogs: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ActivityLog)) });
-                    }, (err) => console.warn("Admin Listener - ActivityLogs Denied:", err.message))
+                    onSnapshot(query(collection(db, 'pendingAccountRequests'), orderBy('createdAt', 'desc')), (snapshot) => {
+                      useStore.setState({ pendingAccountRequests: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PendingAccountRequest)) });
+                    }, (err) => console.warn("Admin Listener - PendingAccountRequests Denied:", err.message))
                   );
                 }
               }

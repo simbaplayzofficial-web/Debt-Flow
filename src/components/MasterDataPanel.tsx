@@ -13,6 +13,7 @@ type DataTab = 'registry' | 'activity' | 'validations' | 'backup';
 
 export default function MasterDataPanel() {
   const { 
+    currentUser,
     users, transactions, debts, activityLogs, 
     announcements, resolvingDeck, anonymousComplaints,
     debtAdjustments, groupPosts, resetSystem 
@@ -23,6 +24,12 @@ export default function MasterDataPanel() {
   const [isResetting, setIsResetting] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
+  // Advanced activity log filters
+  const [filterRole, setFilterRole] = useState<string>('all');
+  const [filterSeverity, setFilterSeverity] = useState<string>('all');
+  const [filterDate, setFilterDate] = useState<string>('all'); // all, today, 3days, 7days, 30days
+  const [filterLocation, setFilterLocation] = useState<string>('all');
+
   const filteredUsers = useMemo(() => {
     return users.filter(u => 
       (u.username || '').toLowerCase().includes((search || '').toLowerCase())
@@ -30,21 +37,88 @@ export default function MasterDataPanel() {
   }, [users, search]);
 
   const filteredLogs = useMemo(() => {
-    return activityLogs.filter(l => {
-      const username = users.find(u => u.id === l.userId)?.username || l.userId || '';
-      const action = l.action || '';
+    return (activityLogs || []).filter(l => {
+      // 1. Restricted Module logs check (only visible to admins with specialOpsAccess)
+      if (l.location === 'Restricted Module') {
+        if (!currentUser || currentUser.role !== 'admin' || currentUser.specialOpsAccess !== true) {
+          return false;
+        }
+      }
+
+      // 2. Search query alignment
       const s = (search || '').toLowerCase();
-      return username.toLowerCase().includes(s) || action.toLowerCase().includes(s);
+      const username = l.username || users.find(u => u.id === l.userId)?.username || l.userId || '';
+      const action = l.activityType || l.action || '';
+      const desc = l.description || '';
+      const loc = l.location || '';
+      
+      const matchSearch = s === '' ||
+        username.toLowerCase().includes(s) ||
+        action.toLowerCase().includes(s) ||
+        desc.toLowerCase().includes(s) ||
+        loc.toLowerCase().includes(s);
+
+      if (!matchSearch) return false;
+
+      // 3. Role filtration
+      if (filterRole !== 'all') {
+        const logRole = l.role || users.find(u => u.id === l.userId)?.role || 'user';
+        if (logRole !== filterRole) return false;
+      }
+
+      // 4. Severity filtration
+      if (filterSeverity !== 'all') {
+        if (l.severity !== filterSeverity) return false;
+      }
+
+      // 5. Section/location filtration
+      if (filterLocation !== 'all') {
+        if (l.location !== filterLocation) return false;
+      }
+
+      // 6. Date window alignment
+      if (filterDate !== 'all') {
+        const logTime = new Date(l.timestamp?.toDate?.() || l.timestamp || 0).getTime();
+        const now = Date.now();
+        if (filterDate === 'today') {
+          const startOfToday = new Date().setHours(0,0,0,0);
+          if (logTime < startOfToday) return false;
+        } else if (filterDate === '3days') {
+          if (logTime < now - 3 * 24 * 60 * 60 * 1000) return false;
+        } else if (filterDate === '7days') {
+          if (logTime < now - 7 * 24 * 60 * 60 * 1000) return false;
+        } else if (filterDate === '30days') {
+          if (logTime < now - 30 * 24 * 60 * 60 * 1000) return false;
+        }
+      }
+
+      return true;
     }).sort((a,b) => {
       const timeA = new Date(a.timestamp?.toDate?.() || a.timestamp || 0).getTime();
       const timeB = new Date(b.timestamp?.toDate?.() || b.timestamp || 0).getTime();
       return timeB - timeA;
     });
-  }, [activityLogs, search, users]);
+  }, [activityLogs, search, users, filterRole, filterSeverity, filterLocation, filterDate, currentUser]);
 
   const validatedTransactions = useMemo(() => {
     return transactions.filter(t => t.validatedBy).sort((a,b) => (b.validatedAt || '').localeCompare(a.validatedAt || ''));
   }, [transactions]);
+
+  const locations = useMemo(() => {
+    const list = new Set<string>();
+    (activityLogs || []).forEach(l => {
+      if (l.location) {
+        if (l.location === 'Restricted Module') {
+          if (currentUser?.role === 'admin' && currentUser?.specialOpsAccess === true) {
+            list.add(l.location);
+          }
+        } else {
+          list.add(l.location);
+        }
+      }
+    });
+    return Array.from(list).sort();
+  }, [activityLogs, currentUser]);
 
   const handleExportAndReset = async () => {
     try {
@@ -310,62 +384,185 @@ export default function MasterDataPanel() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden"
+            className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl"
           >
-            <div className="p-8 border-b border-neutral-800 flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div className="flex items-center gap-3">
-                <Activity className="text-orange-500" size={20} />
-                <h2 className="text-xl font-bold italic">Activity Intelligence</h2>
-                <span className="bg-neutral-800 text-neutral-400 text-[10px] font-black px-2 py-1 rounded-lg uppercase">{activityLogs.length} Events</span>
+            {/* Header with live operational heartbeat */}
+            <div className="p-8 border-b border-neutral-800 bg-neutral-950/40 flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                  </div>
+                  <h2 className="text-xl font-bold tracking-tight text-neutral-100 flex items-center gap-2 italic">
+                    <Activity size={18} className="text-amber-500" />
+                    INTELLIGENCE TELEMETRY FEED
+                  </h2>
+                  <span className="bg-neutral-850 border border-neutral-800 text-neutral-400 text-[10px] font-black px-2.5 py-1 rounded-md tracking-wider">
+                    {filteredLogs.length} SECURED RECORDS
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-500 max-w-xl">
+                  Platform telemetry log compiling operational audit histories, clearance modifications, and ledger entries in real time.
+                </p>
               </div>
-              
-              <div className="relative group w-full md:w-64">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-orange-500 transition-colors" size={18} />
+
+              {/* Dynamic search bar */}
+              <div className="relative group w-full xl:w-72">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-amber-500 transition-colors" size={16} />
                 <input 
                   type="text" 
-                  placeholder="Filter logs..." 
+                  placeholder="Query by action, tag, or description..." 
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-12 pr-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-all font-medium italic" 
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-11 pr-4 py-3 text-xs focus:outline-none focus:border-amber-500 transition-all font-mono italic text-neutral-200" 
                 />
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-neutral-950/50">
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest border-b border-neutral-800">Operative</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest border-b border-neutral-800">Action Matrix</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest border-b border-neutral-800">Time Segment</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest border-b border-neutral-800 text-right">Deployment Area</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-800/50">
-                  {filteredLogs.map(log => (
-                    <tr key={log.id || Math.random().toString()} className="hover:bg-neutral-800/20 transition-colors">
-                      <td className="px-8 py-6">
-                        <span className="font-bold text-neutral-100 italic">@{users.find(u => u.id === log.userId)?.username || log.userId}</span>
-                      </td>
-                      <td className="px-8 py-6">
-                        <span className="text-[10px] font-black text-blue-400 bg-blue-500/5 px-2 py-1 rounded border border-blue-500/10 uppercase tracking-widest">
-                          {log.action}
+            {/* Advanced filtering panel */}
+            <div className="p-6 bg-neutral-950/20 border-b border-neutral-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Role filter */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black tracking-widest text-neutral-500 uppercase">Operative Role</label>
+                <select
+                  value={filterRole}
+                  onChange={(e) => setFilterRole(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-805 rounded-xl px-4 py-2.5 text-xs font-semibold text-neutral-300 focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="all">All Clearances</option>
+                  <option value="user">User Clearance</option>
+                  <option value="monitor">Monitor Sovereignty</option>
+                  <option value="admin">Administrator High Office</option>
+                </select>
+              </div>
+
+              {/* Severity filter */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black tracking-widest text-neutral-500 uppercase">Anomaly Severity</label>
+                <select
+                  value={filterSeverity}
+                  onChange={(e) => setFilterSeverity(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-805 rounded-xl px-4 py-2.5 text-xs font-semibold text-neutral-300 focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="all">All Severities</option>
+                  <option value="info">Info (Standard Ops)</option>
+                  <option value="warning">Warning (Elevated Alerts)</option>
+                  <option value="critical">Critical (Integrity Breaches)</option>
+                </select>
+              </div>
+
+              {/* Location filter */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black tracking-widest text-neutral-400 uppercase">Deployment Area</label>
+                <select
+                  value={filterLocation}
+                  onChange={(e) => setFilterLocation(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-805 rounded-xl px-4 py-2.5 text-xs font-semibold text-neutral-300 focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="all">All Subsystems</option>
+                  {locations.map(loc => (
+                    <option key={loc} value={loc}>{loc}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date window filter */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black tracking-widest text-neutral-400 uppercase">Temporal Window</label>
+                <select
+                  value={filterDate}
+                  onChange={(e) => setFilterDate(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-805 rounded-xl px-4 py-2.5 text-xs font-semibold text-neutral-300 focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="all">All Historic Periods</option>
+                  <option value="today">Today (Cycle Start)</option>
+                  <option value="3days">Last 72 Hours</option>
+                  <option value="7days">Last 7 Solar Cycles</option>
+                  <option value="30days">Last 30 Solar Cycles</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Feed command terminal list */}
+            <div className="divide-y divide-neutral-800/60 max-h-[500px] overflow-y-auto font-mono text-xs">
+              {filteredLogs.length === 0 ? (
+                <div className="p-12 text-center text-neutral-500 space-y-2 italic">
+                  <p className="text-sm font-bold uppercase tracking-wider text-neutral-600">No Telemetry Matches Found</p>
+                  <p className="text-xs">Adjust filter matrices to scan other quadrants.</p>
+                </div>
+              ) : (
+                filteredLogs.map((log, index) => {
+                  const logTimeStr = log.timestamp?.toDate?.() 
+                    ? log.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) 
+                    : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  
+                  const logDateStr = log.timestamp?.toDate?.() 
+                    ? log.timestamp.toDate().toLocaleDateString() 
+                    : new Date().toLocaleDateString();
+
+                  // Define severity colors & glow metrics
+                  let badgeColors = 'text-blue-400 bg-blue-500/5 border-blue-500/20';
+                  let rowBorderColor = 'hover:border-l-blue-500 border-l-transparent';
+                  if (log.severity === 'critical') {
+                    badgeColors = 'text-red-400 bg-red-400/10 border-red-500/30 font-extrabold animate-pulse';
+                    rowBorderColor = 'hover:border-l-red-500 border-l-transparent';
+                  } else if (log.severity === 'warning') {
+                    badgeColors = 'text-amber-500 bg-amber-500/5 border-amber-500/25 font-bold';
+                    rowBorderColor = 'hover:border-l-amber-500 border-l-transparent';
+                  }
+
+                  // Retrieve detailed username
+                  const resolvedUser = users.find(u => u.id === log.userId);
+                  const logUsername = log.username || resolvedUser?.username || log.userId || 'system';
+                  
+                  // Role Badge coloring
+                  let roleTagColor = 'text-neutral-400 border-neutral-800';
+                  if (log.role === 'admin') {
+                    roleTagColor = 'text-red-400 border-red-900/30 bg-red-950/20';
+                  } else if (log.role === 'monitor') {
+                    roleTagColor = 'text-amber-400 border-amber-900/30 bg-amber-950/20';
+                  }
+
+                  return (
+                    <div 
+                      key={log.id || `activity-item-${index}`} 
+                      className={`p-5 hover:bg-neutral-850/30 flex flex-col md:flex-row md:items-center justify-between gap-4 border-l-4 transition-all duration-200 ${rowBorderColor}`}
+                    >
+                      {/* Left: Time tracker & operative user */}
+                      <div className="flex flex-wrap items-center gap-3 md:w-[70%]">
+                        <span className="text-[10px] text-neutral-500 bg-neutral-950 border border-neutral-805 px-2.5 py-1 rounded-md font-mono" title={logDateStr}>
+                          [{logTimeStr}]
                         </span>
-                      </td>
-                      <td className="px-8 py-6">
-                        <span className="text-[10px] font-mono text-neutral-500 italic">
-                          {log.timestamp?.toDate?.() ? log.timestamp.toDate().toLocaleString() : new Date().toLocaleString()}
+
+                        <div className="flex items-center gap-1.5 bg-neutral-950/50 px-2 py-0.5 rounded border border-neutral-850">
+                          <span className="font-bold text-neutral-200 italic">
+                            @{logUsername}
+                          </span>
+                          <span className={`text-[8px] font-black uppercase px-1.5 py-0.2 rounded border ${roleTagColor}`}>
+                            {log.role || resolvedUser?.role || 'user'}
+                          </span>
+                        </div>
+
+                        {/* Mid-right: Actual Action description sentence */}
+                        <span className="text-neutral-300 font-sans pl-1">
+                          {log.description || log.action || log.activityType}
                         </span>
-                      </td>
-                      <td className="px-8 py-6 text-right">
-                        <span className="text-[10px] font-black text-neutral-600 uppercase tracking-widest italic">
+                      </div>
+
+                      {/* Right: Badge type and location track */}
+                      <div className="flex items-center justify-between md:justify-end gap-4 font-mono text-[10px] md:w-[30%]">
+                        <span className={`px-2 py-1.5 rounded border ${badgeColors} tracking-widest uppercase text-[9px]`}>
+                          {log.severity || 'info'}
+                        </span>
+                        <span className="text-neutral-500 bg-neutral-950 border border-neutral-805 px-3 py-1.5 rounded-lg text-right font-black tracking-wider uppercase">
                           {log.location || 'SYSTEM'}
                         </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </motion.section>
         )}

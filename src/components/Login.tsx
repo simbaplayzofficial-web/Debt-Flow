@@ -139,12 +139,14 @@ export default function Login() {
         
         if (success) {
           setSignUpSuccess(true);
-          console.log("[UI_SIGNUP] Transitioning into success message context. Auto-session starting.");
+          console.log("[UI_SIGNUP] Transitioning into success message context. Handing over to admin queue.");
           
-          // Show beautiful success states before session restore launches dashboard
           setTimeout(() => {
             setSignUpSuccess(false);
-          }, 3000);
+            setIsLogin(true); // Switch to login tab
+            setPassword('');
+            setConfirmPassword('');
+          }, 4500);
         }
       }
     } catch (err: any) {
@@ -236,9 +238,9 @@ export default function Login() {
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-lg shadow-emerald-500/10">
                   <Check size={32} className="animate-bounce" />
                 </div>
-                <h3 className="text-lg font-black font-sans text-neutral-200 uppercase tracking-widest">Protocol Enacted</h3>
-                <p className="text-neutral-400 text-xs max-w-xs font-mono">
-                  Your profile has been synchronized with the main ledger. Preparing localized session interface...
+                <h3 className="text-lg font-black font-sans text-emerald-400 uppercase tracking-widest">Request Submitted</h3>
+                <p className="text-neutral-300 text-xs max-w-sm font-mono leading-relaxed px-4">
+                  Request submitted successfully. Admin approval required. Your registration request of <span className="text-white">@{username}</span> is currently awaiting validation.
                 </p>
                 <div className="w-24 h-1.5 bg-neutral-950 rounded-full overflow-hidden">
                   <motion.div 
