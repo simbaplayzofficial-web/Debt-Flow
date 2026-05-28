@@ -47,9 +47,9 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
     setError(null);
     
     const q = query(
-      collection(db, 'anonymousComplaintChats'),
-      where('threadId', '==', threadId),
-      orderBy('timestamp', 'asc')
+      collection(db, 'complaintMessages'),
+      where('complaintId', '==', threadId),
+      orderBy('createdAt', 'asc')
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -79,7 +79,8 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
     
     setSending(true);
     try {
-      await sendAnonymousChatMessage(threadId, inputText.trim(), senderType);
+      // Send roles: user / monitor
+      await sendComplaintMessage(threadId, inputText.trim());
       setInputText('');
     } catch (err: any) {
       console.error(err);

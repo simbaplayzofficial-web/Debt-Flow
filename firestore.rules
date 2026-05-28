@@ -171,6 +171,19 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
+    // Chatter
+    // -------------------------------------------------------------------------
+    match /directConversations/{id} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && request.auth.uid in incoming().participants;
+    }
+
+    match /directMessages/{id} {
+      allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/directConversations/$(resource.data.conversationId)).data.participants;
+      allow create: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/directConversations/$(incoming().conversationId)).data.participants;
+    }
+
+    // -------------------------------------------------------------------------
     // Resolving Deck & Justice Nexus
     // -------------------------------------------------------------------------
     match /resolvingDeck/{id} {

@@ -21,13 +21,11 @@ export const MonitorWorkspace: React.FC = () => {
   const { 
     transactions, users, approveTransaction, rejectTransaction, 
     currentUser, roleRequests, rolesConfig, updateRolesConfig, resolveRoleRequest,
-    // REMOVED anonymousComplaints, updateAnonymousComplaintStatus, etc.
     activityLogs, resolvingDeck, resolveBill,
     announcements, postAnnouncement, deleteAnnouncement, debtAdjustments,
     systemStatus, updateSystemStatus, issueWarning, revokeWarning, updateWarningRules, deleteUser,
     warningRules, allWarnings,
-    // Add new methods:
-    claimComplaint, resolveComplaint, sendComplaintMessage
+    claimComplaint, resolveComplaint
   } = useStore();
   
   // ...
@@ -161,7 +159,7 @@ export const MonitorWorkspace: React.FC = () => {
     .filter(t => t.status === 'pending')
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
-  const pendingComplaintsCount = anonymousComplaints.filter(c => c.status === 'pending').length;
+  const pendingComplaintsCount = localComplaints.filter(c => c.status === 'pending').length;
   const pendingCases = resolvingDeck.filter(c => c.status === 'under_investigation').length;
   const pendingDebts = debtAdjustments.filter(a => a.status === 'REQUESTED').length;
 
@@ -525,8 +523,8 @@ export const MonitorWorkspace: React.FC = () => {
                 </div>
                 {/* Sub tabs matching pending, under_review, resolved, archived */}
                 <div className="flex bg-neutral-900 p-1 border border-neutral-800 rounded-xl gap-1">
-                  {(['pending', 'under_review', 'resolved', 'archived'] as const).map(tab => {
-                    const count = anonymousComplaints.filter(c => c.status === tab).length;
+                  {(['pending', 'under_review', 'resolved'] as const).map(tab => {
+                    const count = localComplaints.filter(c => c.status === tab).length;
                     return (
                       <button
                         key={tab}

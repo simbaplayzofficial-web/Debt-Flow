@@ -209,6 +209,24 @@ export type Leaderboard = {
   updatedAt: string;
 };
 
+export type DirectConversation = {
+  id: string;
+  participants: string[];
+  createdAt: any;
+  updatedAt: any;
+  lastMessage?: string;
+  lastMessageAt?: any;
+};
+
+export type DirectMessage = {
+  id: string;
+  conversationId: string;
+  senderUid: string;
+  message: string;
+  createdAt: any;
+  seenBy: string[];
+};
+
 export type Complaint = {
   id: string;
   createdByUid: string;
@@ -415,6 +433,8 @@ type State = {
   roles: AppRole[];
   specialOpsLogs: SpecialOpsLog[];
   internalNotes: InternalNote[];
+  directConversations: DirectConversation[];
+  directMessages: DirectMessage[];
   recruitments: Recruitment[];
   rewards: Reward[];
   spyNetwork: SpyOpsMember[];
@@ -519,6 +539,10 @@ type State = {
   // Groups
   postToGroup: (groupId: GroupId, content: string) => Promise<void>;
   
+  // Chatter
+  getOrCreateConversation: (participantId: string) => Promise<string>;
+  sendDirectMessage: (conversationId: string, message: string) => Promise<void>;
+  
   // Helpers
   calculateDebt: (pages: number) => number;
   logActivity: (action: string, details: any, userId?: string, username?: string, type?: string, location?: string) => Promise<void>;
@@ -543,6 +567,8 @@ export const useStore = create<State>()((set, get) => ({
   roles: [],
   specialOpsLogs: [],
   internalNotes: [],
+  directConversations: [],
+  directMessages: [],
   recruitments: [],
   rewards: [],
   spyNetwork: [],
@@ -2475,6 +2501,42 @@ export const useStore = create<State>()((set, get) => ({
     
     await updateDoc(doc(db, "complaints", complaintId), {
       lastMessageAt: serverTimestamp()
+    });
+  },
+
+  getOrCreateConversation: async (participantId) => {
+    const { currentUser, directConversations } = get();
+    if (!currentUser) throw new Error("UNAUTHORIZED");
+
+    const existing = directConversations.find(c => c.participants.includes(participantId) && c.participants.includes(currentUser.id));
+    if (existing) return existing.id;
+
+    const id = uuidv4();
+    await setDoc(doc(db, 'directConversations', id), {
+      id,
+      participants: [currentUser.id, participantId],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return id;
+  },
+
+  sendDirectMessage: async (conversationId, message) => {
+    const { currentUser } = get();
+    if (!currentUser) throw new Error("UNAUTHORIZED");
+    
+    await addDoc(collection(db, "directMessages"), {
+      conversationId,
+      senderUid: currentUser.id,
+      message,
+      createdAt: serverTimestamp(),
+      seenBy: [currentUser.id]
+    });
+    
+    await updateDoc(doc(db, "directConversations", conversationId), {
+      lastMessage: message,
+      lastMessageAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     });
   },
 }));

@@ -9,6 +9,7 @@ import { motion } from 'motion/react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { BlackBox } from './BlackBox';
+import { ChatterPanel } from './ChatterPanel';
 
 export default function Groups() {
   const { 
@@ -72,6 +73,7 @@ export default function Groups() {
           { id: 'chatting', label: 'Chatting Together', icon: MessageCircle },
           { id: 'monitoring', label: 'Council Workspace', icon: Shield },
           { id: 'blackbox', label: 'Black Box', icon: Lock },
+          { id: 'chattering', label: 'Chattering', icon: MessageSquare },
         ].map(g => (
           <button
             key={g.id}
@@ -92,7 +94,11 @@ export default function Groups() {
       <div className="grid lg:grid-cols-[1fr_400px] gap-8">
         {/* Active Communication Stream */}
         <section className="bg-neutral-900 border border-neutral-800 rounded-3xl flex flex-col h-[700px] overflow-hidden">
-          {activeGroup === 'blackbox' ? (
+          {activeGroup === 'chattering' ? (
+             <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar bg-neutral-950/20">
+              <ChatterPanel />
+            </div>
+          ) : activeGroup === 'blackbox' ? (
             <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar bg-neutral-950/20">
               <BlackBox source="groups_blackbox" />
             </div>
