@@ -850,12 +850,12 @@ export const useStore = create<State>()((set, get) => ({
         const reqData = pendingSnap.data();
         if (reqData.status === 'pending') {
           set({ authError: "Account awaiting validation." });
+          return false;
         } else if (reqData.status === 'rejected') {
           set({ authError: "Account request rejected." });
-        } else {
-          set({ authError: "Account request in invalid state." });
+          return false;
         }
-        return false;
+        // Approved requests are ignored, proceed to auth login
       }
       
       // Default Auth error
