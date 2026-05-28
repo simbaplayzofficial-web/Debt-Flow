@@ -18,6 +18,7 @@ import SpecialOps from './components/SpecialOps';
 import { MonitorWorkspace } from './components/MonitorWorkspace';
 import Chatterbox from './components/Chatterbox';
 import ControlPanel from './components/ControlPanel';
+import { TutorialGateway } from './components/Onboarding/TutorialGateway';
 
 function SidebarItem({ icon: Icon, label, active, onClick, className = '' }: { icon: any, label: string, active: boolean, onClick: () => void, className?: string }) {
   return (
@@ -144,6 +145,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex overflow-hidden font-sans selection:bg-blue-500/30">
+      <TutorialGateway />
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
