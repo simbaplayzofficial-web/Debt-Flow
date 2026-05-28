@@ -886,9 +886,8 @@ export const useStore = create<State>()((set, get) => ({
         }
       }
 
-      console.log("Creating signup request...");
-      // Store request in pendingAccountRequests Firestore collection
-      await setDoc(doc(db, 'pendingAccountRequests', usernameLower), {
+      console.log("Starting signup request creation for username:", trimmedUsername);
+      const requestData = {
         id: usernameLower,
         username: trimmedUsername,
         generatedEmail: derivedEmail,
@@ -896,9 +895,13 @@ export const useStore = create<State>()((set, get) => ({
         requestedRole: requestedRole === 'monitor' ? 'Monitor' : requestedRole === 'admin' ? 'Admin' : 'Standard',
         status: 'pending',
         createdAt: new Date().toISOString()
-      });
+      };
+      console.log("Request payload for pendingAccountRequests:", requestData);
 
-      console.log("Firestore write success");
+      // Store request in pendingAccountRequests Firestore collection
+      await setDoc(doc(db, 'pendingAccountRequests', usernameLower), requestData);
+
+      console.log("Firestore write SUCCESS for pendingAccountRequest document ID:", usernameLower);
       return true;
     } catch (error: any) {
       console.error("[SIGNUP_FAILURE] Error during storage:", error);

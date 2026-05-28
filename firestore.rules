@@ -7,16 +7,22 @@ service cloud.firestore {
     
     function isSignedIn() { return request.auth != null; }
     function isAdmin() { 
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin") ||
+        (request.auth.token.email != null && 
+         request.auth.token.email.toLowerCase() in ['patty@debtflow.com', 'chiti@debtflow.com', 'simbaplayzofficial@gmail.com', 'simba@debtflow.com'])
+      );
     }
     function isMonitor() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "monitor"
-        );
+        )) ||
+        (request.auth.token.email != null && 
+         request.auth.token.email.toLowerCase() in ['patty@debtflow.com', 'chiti@debtflow.com', 'simbaplayzofficial@gmail.com', 'simba@debtflow.com'])
+      );
     }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     function isSpyOwner() {
@@ -91,9 +97,7 @@ service cloud.firestore {
     }
 
     match /pendingAccountRequests/{requestId} {
-      allow create: if true;
-      allow get: if true;
-      allow list, update, delete: if isAdmin();
+      allow read, write: if true;
     }
 
     match /roles_config/global {

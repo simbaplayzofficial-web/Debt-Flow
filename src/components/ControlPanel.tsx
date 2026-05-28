@@ -44,32 +44,45 @@ export default function ControlPanel() {
   const [editIntegrity, setEditIntegrity] = useState<number>(100);
   const [editWarnings, setEditWarnings] = useState<number>(0);
 
+  const [pendingRequests, setPendingRequests] = useState<PendingAccountRequest[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState<boolean>(true);
+
   // Real-time self-contained subscription to pending requests
   React.useEffect(() => {
     if (!currentUser || currentUser.role !== 'admin') return;
 
-    console.log("[CONTROL_PANEL] Registering realtime onSnapshot listener for pendingAccountRequests...");
+    console.log("Validation listener starting...");
+    setLoadingRequests(true);
+
     const q = query(
       collection(db, 'pendingAccountRequests'),
       where('status', '==', 'pending')
     );
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      console.log("Validation listener active");
-      console.log("Pending requests:", snapshot.docs.length);
+      console.log("Pending requests loaded:", snapshot.docs.length);
 
       const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PendingAccountRequest));
+      
+      console.log("Requests payload detail:", list);
+
       list.sort((a, b) => {
         const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return dateB - dateA;
       });
+
+      setPendingRequests(list);
+      setLoadingRequests(false);
+      // Synchronize back to centralized store as safety fallback
       useStore.setState({ pendingAccountRequests: list });
     }, (err) => {
-      console.error("[CONTROL_PANEL] Realtime subscription to pendingAccountRequests failed:", err.message);
+      console.error("Validation listener ERROR:", err);
+      setLoadingRequests(false);
     });
 
     return () => {
-      console.log("[CONTROL_PANEL] Unsubscribing from pendingAccountRequests...");
+      console.log("Validation listener stopping / unsubscribing...");
       unsubscribe();
     };
   }, [currentUser]);
@@ -85,8 +98,6 @@ export default function ControlPanel() {
     (user.username || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.id.toLowerCase().includes(searchTerm.toLowerCase())
   ).sort((a, b) => (a.username || '').localeCompare(b.username || ''));
-
-  const pendingRequests = (pendingAccountRequests || []).filter(req => req.status === 'pending');
 
   const handleRoleUpdate = async (userId: string, newRole: UserRole) => {
     if (!currentUser || currentUser.role !== 'admin') return;
@@ -492,83 +503,98 @@ export default function ControlPanel() {
           </div>
 
           <div className="bg-neutral-950 border border-neutral-900 rounded-[2rem] overflow-hidden shadow-2xl">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-neutral-900 bg-neutral-900/30">
-                    <th className="px-6 py-5 text-left text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Requested Handle</th>
-                    <th className="px-6 py-5 text-left text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Generated Email</th>
-                    <th className="px-6 py-5 text-left text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Target Status</th>
-                    <th className="px-6 py-5 text-left text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Creation Date</th>
-                    <th className="px-6 py-5 text-right text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Clearance Approval</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-900">
-                  <AnimatePresence mode="popLayout">
-                    {pendingRequests.map((req) => (
-                      <motion.tr 
-                        key={req.id}
-                        layout
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="group hover:bg-neutral-900/10"
-                      >
-                        <td className="px-6 py-5 font-black text-xs text-neutral-100 uppercase">
-                          @{req.username}
-                        </td>
-                        <td className="px-6 py-5 text-xs text-neutral-500 font-mono">
-                          {req.generatedEmail}
-                        </td>
-                        <td className="px-6 py-5">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border ${
-                            req.requestedRole === 'Monitor' 
-                              ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' 
-                              : 'bg-neutral-900 border-neutral-800 text-neutral-400'
-                          }`}>
-                            {req.requestedRole} Request
-                          </span>
-                        </td>
-                        <td className="px-6 py-5 text-xs font-mono text-neutral-600">
-                          {req.createdAt ? new Date(req.createdAt).toLocaleString() : 'PENDING TIME'}
-                        </td>
-                        <td className="px-6 py-5 text-right">
-                          <div className="flex justify-end gap-2.5">
-                            <button
-                              disabled={updatingId === req.id}
-                              onClick={() => handleRejectRequest(req.id)}
-                              className="px-3.5 py-1.5 bg-neutral-900 hover:bg-red-950/20 text-neutral-500 hover:text-red-500 border border-neutral-850 hover:border-red-500/20 rounded-xl text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer"
-                            >
-                              Reject Request
-                            </button>
-                            <button
-                              disabled={updatingId === req.id}
-                              onClick={() => handleApproveRequest(req.id)}
-                              className="px-4 py-1.5 bg-red-650 hover:bg-red-500 text-white shadow-md shadow-red-950 rounded-xl text-[9px] font-black uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer"
-                            >
-                              {updatingId === req.id ? (
-                                <Clock size={10} className="animate-spin text-white" />
-                              ) : (
-                                <Check size={10} />
-                              )}
-                              Approve Ledger
-                            </button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-            </div>
-
-            {pendingRequests.length === 0 && (
-              <div className="p-20 text-center space-y-4">
-                <div className="w-12 h-12 bg-neutral-900 rounded-3xl flex items-center justify-center text-neutral-600 border border-neutral-850 mx-auto">
-                  <ShieldCheck size={20} className="text-green-500" />
+            {loadingRequests ? (
+              <div className="p-24 flex flex-col items-center justify-center text-center space-y-4">
+                <div className="relative flex items-center justify-center">
+                  <Clock size={36} className="text-red-500 animate-spin" />
+                  <div className="absolute inset-0 rounded-full border border-red-500/10 animate-ping" />
                 </div>
-                <p className="text-neutral-500 font-bold uppercase tracking-widest italic text-xs">All account requests onboarded. Queue is empty.</p>
+                <h3 className="text-xs font-black font-mono text-neutral-400 uppercase tracking-[0.2em]">Contacting Ledger Network</h3>
+                <p className="text-neutral-500 text-[10px] font-mono max-w-xs leading-relaxed">
+                  Establishing secure tunnel to Firestore... Handshaking clearance records.
+                </p>
               </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b border-neutral-900 bg-neutral-900/30">
+                        <th className="px-6 py-5 text-left text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Requested Handle</th>
+                        <th className="px-6 py-5 text-left text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Generated Email</th>
+                        <th className="px-6 py-5 text-left text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Target Status</th>
+                        <th className="px-6 py-5 text-left text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Creation Date</th>
+                        <th className="px-6 py-5 text-right text-[9px] font-black uppercase text-neutral-500 tracking-[0.25em] italic">Clearance Approval</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-900">
+                      <AnimatePresence mode="popLayout">
+                        {pendingRequests.map((req) => (
+                          <motion.tr 
+                            key={req.id}
+                            layout
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="group hover:bg-neutral-900/10"
+                          >
+                            <td className="px-6 py-5 font-black text-xs text-neutral-100 uppercase">
+                              @{req.username}
+                            </td>
+                            <td className="px-6 py-5 text-xs text-neutral-500 font-mono">
+                              {req.generatedEmail}
+                            </td>
+                            <td className="px-6 py-5">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border ${
+                                req.requestedRole === 'Monitor' 
+                                  ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' 
+                                  : 'bg-neutral-900 border-neutral-800 text-neutral-400'
+                              }`}>
+                                {req.requestedRole} Request
+                              </span>
+                            </td>
+                            <td className="px-6 py-5 text-xs font-mono text-neutral-600">
+                              {req.createdAt ? new Date(req.createdAt).toLocaleString() : 'PENDING TIME'}
+                            </td>
+                            <td className="px-6 py-5 text-right">
+                              <div className="flex justify-end gap-2.5">
+                                <button
+                                  disabled={updatingId === req.id}
+                                  onClick={() => handleRejectRequest(req.id)}
+                                  className="px-3.5 py-1.5 bg-neutral-900 hover:bg-red-950/20 text-neutral-500 hover:text-red-500 border border-neutral-850 hover:border-red-500/20 rounded-xl text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer"
+                                >
+                                  Reject Request
+                                </button>
+                                <button
+                                  disabled={updatingId === req.id}
+                                  onClick={() => handleApproveRequest(req.id)}
+                                  className="px-4 py-1.5 bg-red-650 hover:bg-red-500 text-white shadow-md shadow-red-950 rounded-xl text-[9px] font-black uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  {updatingId === req.id ? (
+                                    <Clock size={10} className="animate-spin text-white" />
+                                  ) : (
+                                    <Check size={10} />
+                                  )}
+                                  Approve Ledger
+                                </button>
+                              </div>
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </AnimatePresence>
+                    </tbody>
+                  </table>
+                </div>
+
+                {pendingRequests.length === 0 && (
+                  <div className="p-20 text-center space-y-4">
+                    <div className="w-12 h-12 bg-neutral-900 rounded-3xl flex items-center justify-center text-neutral-600 border border-neutral-850 mx-auto">
+                      <ShieldCheck size={20} className="text-green-500" />
+                    </div>
+                    <p className="text-neutral-500 font-bold uppercase tracking-widest italic text-xs">All account requests onboarded. Queue is empty.</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
