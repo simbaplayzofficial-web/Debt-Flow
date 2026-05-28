@@ -211,9 +211,22 @@ export type Leaderboard = {
 
 export type Complaint = {
   id: string;
-  content: string;
-  timestamp: string;
-  reviewedBy: string[];
+  createdByUid: string;
+  createdAt: any;
+  status: 'open' | 'claimed' | 'resolved';
+  subject: string;
+  complaint: string;
+  assignedMonitorId: string | null;
+  lastMessageAt: any;
+};
+
+export type ComplaintMessage = {
+  id: string;
+  complaintId: string;
+  senderRole: 'user' | 'monitor';
+  senderUid: string;
+  message: string;
+  createdAt: any;
 };
 
 export type CaseStatus = 'ongoing' | 'resolved' | 'under_investigation';
@@ -227,21 +240,6 @@ export type ResolvingCase = {
   resolvedAt?: string;
   verdict?: string;
   timestamp: string;
-};
-
-export type AnonymousComplaint = {
-  id: string;
-  message: string;
-  category?: string;
-  createdAt: string; // ISO String
-  status: 'pending' | 'under_review' | 'resolved' | 'archived';
-  source: 'groups_blackbox' | 'profile_blackbox' | string;
-  assignedTo?: string | null;  // UID of assigned monitor
-  assignedMonitorId?: string | null;
-  assignedMonitorName?: string | null;
-  anonymousThreadId?: string | null;
-  complainantUid?: string | null;
-  internalNotes?: string;
 };
 
 export type PendingAccountRequest = {
@@ -405,9 +403,9 @@ type State = {
   transactions: Transaction[];
   announcements: Announcement[];
   complaints: Complaint[];
+  complaintMessages: ComplaintMessage[];
   roleRequests: RoleRequest[];
   resolvingDeck: ResolvingCase[];
-  anonymousComplaints: AnonymousComplaint[];
   pendingAccountRequests: PendingAccountRequest[];
   systemStatus: SystemStatus | null;
   activityLogs: ActivityLog[];
@@ -503,14 +501,10 @@ type State = {
   recalculateLeaderboard: () => Promise<void>;
   
   // Complaints (Black Box)
-  submitAnonymousComplaint: (message: string, category: string, source: string) => Promise<void>;
-  updateAnonymousComplaintStatus: (id: string, status: 'pending' | 'under_review' | 'resolved' | 'archived') => Promise<void>;
-  assignAnonymousComplaint: (id: string, monitorId: string | null) => Promise<void>;
-  updateAnonymousComplaintNotes: (id: string, notes: string) => Promise<void>;
-  deleteAnonymousComplaint: (id: string) => Promise<void>;
-  claimAnonymousComplaint: (id: string) => Promise<void>;
-  openAnonymousLine: (id: string) => Promise<void>;
-  sendAnonymousChatMessage: (threadId: string, message: string, senderType: 'monitor' | 'complainant') => Promise<void>;
+  submitComplaint: (subject: string, complaint: string) => Promise<string>;
+  claimComplaint: (complaintId: string) => Promise<void>;
+  resolveComplaint: (complaintId: string) => Promise<void>;
+  sendComplaintMessage: (complaintId: string, message: string) => Promise<void>;
   
   // Role Transition
   requestRole: (role: UserRole) => Promise<void>;

@@ -153,12 +153,21 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
-    // Complaints & Disputes
+    // New Anonymous Complaint System
     // -------------------------------------------------------------------------
     match /complaints/{id} {
-      allow create: if true; 
-      allow read: if isMonitor();
-      allow update: if isMonitor();
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.createdByUid || request.auth.uid == resource.data.assignedMonitorId || isAdmin());
+      allow update: if isSignedIn() && (request.auth.uid == resource.data.assignedMonitorId || isAdmin());
+    }
+
+    match /complaintMessages/{id} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && (
+        get(/databases/$(database)/documents/complaints/$(request.resource.data.complaintId)).data.createdByUid == request.auth.uid ||
+        get(/databases/$(database)/documents/complaints/$(request.resource.data.complaintId)).data.assignedMonitorId == request.auth.uid ||
+        isAdmin()
+      );
     }
 
     // -------------------------------------------------------------------------
@@ -186,11 +195,6 @@ service cloud.firestore {
     match /forgivenessLogs/{logId} {
       allow read: if isSignedIn();
       allow create: if isMonitor();
-    }
-
-    match /anonymousComplaints/{id} {
-      allow create: if isSignedIn();
-      allow read, update, delete: if isMonitor();
     }
 
     match /roles/{roleId} {
