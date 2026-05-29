@@ -539,13 +539,8 @@ export default function Profile() {
                       : "Submit Access Request"}
                   </button>
                   
+
                   <div className="mt-8 border-t border-neutral-800 pt-6">
-                    <button 
-                        onClick={() => useStore.setState({ isTutorialRunning: true })}
-                        className="text-neutral-500 hover:text-blue-500 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 italic"
-                    >
-                        <Video size={12}/> Replay Onboarding
-                    </button>
                   </div>
                 </div>
               )}

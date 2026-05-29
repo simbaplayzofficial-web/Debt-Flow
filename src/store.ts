@@ -89,7 +89,6 @@ export type UserProfile = {
   communityServicesNeeded: number;
   isCommunityServiceParticipant?: boolean;
   specialOpsAccess?: boolean;
-  hasCompletedTutorial?: boolean;
   createdAt?: any;
   lastLogin?: any;
 };
@@ -494,8 +493,6 @@ type State = {
   transactionRequests: TransactionRequest[];
   transactionRatings: TransactionRating[];
   
-  isTutorialRunning: boolean;
-  
   isLoading: boolean;
   authError: string | null;
   
@@ -580,7 +577,6 @@ type State = {
   // Role Transition
   requestRole: (role: UserRole) => Promise<void>;
   resolveRoleRequest: (requestId: string, approved: boolean) => Promise<void>;
-  completeTutorial: () => Promise<void>;
   
   // Vote System
   createVote: (title: string, type: VoteType, options: string[], isAnonymous: boolean) => Promise<void>;
@@ -630,7 +626,6 @@ export const useStore = create<State>()((set, get) => ({
   hasSpecialAccess: false,
   isSpyOwner: false,
   specialOpsMode: false,
-  isTutorialRunning: false,
   bills: [],
   billComments: [],
   billStaffComments: [],
@@ -1022,16 +1017,6 @@ export const useStore = create<State>()((set, get) => ({
     }
     await signOut(auth);
     set({ currentUser: null, specialOpsMode: false });
-  },
-
-  completeTutorial: async () => {
-    const { currentUser } = get();
-    if (!currentUser) return;
-    await updateDoc(doc(db, 'users', currentUser.id), { hasCompletedTutorial: true });
-    set({ 
-      currentUser: { ...currentUser, hasCompletedTutorial: true },
-      isTutorialRunning: false 
-    });
   },
 
   addTransaction: async (askerId, pages, isCommunityService) => {
