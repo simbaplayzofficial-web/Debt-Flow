@@ -74,12 +74,16 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isSignedIn();
       allow create: if isSignedIn() && (isOwner(userId) || isAdmin()) && isValidUser(incoming());
+      // Specifically allow admins to update user roles, while maintaining existing constraints for owners/monitors
       allow update: if isSignedIn() && (
+        // Admin update: allow everything, specifically role updates
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" ||
         isAdmin() ||
-        (request.auth != null && (request.auth.token.role == "admin" || request.auth.token.role == "ADMIN")) ||
+        // Owner Update (Self account management)
         (isOwner(userId) && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'requestedRole', 'ratingAverage', 'ratingCount', 'debtOwed', 'debtToMe', 'totalLendingTransactions', 'communityServicesNeeded', 'lastLogin', 'createdAt', 'integrityScore', 'integrity', 'rating', 'warnings'])) ||
+        // Monitor Update (restricted updates)
         (isMonitor() && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['warningCount', 'integrityLevel', 'integrityScore', 'communityServicesNeeded', 'restrictedUntil', 'isPermanentlyRemoved']))
-      );
+      );                
       allow delete: if isAdmin();
 
       match /warnings/{warningId} {
