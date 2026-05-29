@@ -871,6 +871,10 @@ export const useStore = create<State>()((set, get) => ({
       const userDocRef = doc(db, 'users', user.uid);
       let userDocSnap = await getDoc(userDocRef);
       
+      console.log("Auth success");
+      console.log("Profile existence:", userDocSnap.exists());
+      console.log("Approval status:", userDocSnap.data()?.approved);
+      
       if (!userDocSnap.exists()) {
          console.warn(`[LOGIN] Profile missing for UID: ${user.uid}. Auto-provisioning...`);
          const newUserDoc = {
@@ -915,20 +919,21 @@ export const useStore = create<State>()((set, get) => ({
     } catch (error: any) {
       console.error("[LOGIN_FAILURE] Auth failed:", error);
       
-      // 3. ONLY if auth fails, check pending requests
-      const usernameLower = rawUsername.toLowerCase();
-      const pendingDocRef = doc(db, 'pendingAccountRequests', usernameLower);
-      const pendingSnap = await getDoc(pendingDocRef);
-      if (pendingSnap.exists()) {
-        const reqData = pendingSnap.data();
-        if (reqData.status === 'pending') {
-          set({ authError: "Account awaiting validation." });
-          return false;
-        } else if (reqData.status === 'rejected') {
-          set({ authError: "Account request rejected." });
-          return false;
+      // 3. ONLY if auth fails because user doesn't exist, check pending requests
+      if (error.code === 'auth/user-not-found') {
+        const usernameLower = rawUsername.toLowerCase();
+        const pendingDocRef = doc(db, 'pendingAccountRequests', usernameLower);
+        const pendingSnap = await getDoc(pendingDocRef);
+        if (pendingSnap.exists()) {
+          const reqData = pendingSnap.data();
+          if (reqData.status === 'pending') {
+            set({ authError: "Account awaiting validation." });
+            return false;
+          } else if (reqData.status === 'rejected') {
+            set({ authError: "Account request rejected." });
+            return false;
+          }
         }
-        // Approved requests are ignored, proceed to auth login
       }
       
       // Default Auth error
@@ -2345,6 +2350,7 @@ export const useStore = create<State>()((set, get) => ({
         role: mappedRole,
         requestedRole: null,
         status: 'active',
+        approved: true,
         warningCount: 0,
         warnings: 0,
         integrityScore: 100,
