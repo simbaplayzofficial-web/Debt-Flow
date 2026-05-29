@@ -3250,7 +3250,7 @@ onAuthStateChanged(auth, async (firebaseUser) => {
             }
           });
         }, errorHandler('Votes')),
-        onSnapshot(collection(db, 'transactionRequests'), (snapshot) => {
+        onSnapshot(query(collection(db, 'transactionRequests'), where('status', '==', 'pending')), (snapshot) => {
           useStore.setState({ transactionRequests: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as TransactionRequest)) });
         }, errorHandler('TransactionRequests')),
         onSnapshot(collection(db, 'transactionRatings'), (snapshot) => {
