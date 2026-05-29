@@ -128,7 +128,26 @@ service cloud.firestore {
     }
 
     match /transactions/{txId} {
-      allow create, read, update: if request.auth != null;
+      allow read: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid ||
+        resource.data.senderUid == request.auth.uid ||
+        resource.data.askerId == request.auth.uid ||
+        resource.data.requesterUid == request.auth.uid ||
+        isMonitor() || isAdmin()
+      );
+      allow create: if isSignedIn() && (
+        isMonitor() || isAdmin() ||
+        incoming().senderId == request.auth.uid ||
+        incoming().senderUid == request.auth.uid
+      );
+      allow update: if isSignedIn() && (
+        isMonitor() || isAdmin() ||
+        resource.data.senderId == request.auth.uid ||
+        resource.data.senderUid == request.auth.uid ||
+        resource.data.askerId == request.auth.uid ||
+        resource.data.requesterUid == request.auth.uid
+      );
+      allow delete: if isAdmin();
     }
 
     // -------------------------------------------------------------------------
@@ -157,15 +176,15 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     match /complaints/{id} {
       allow create: if isSignedIn();
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.createdByUid || request.auth.uid == resource.data.assignedMonitorId || isAdmin());
-      allow update: if isSignedIn() && (request.auth.uid == resource.data.assignedMonitorId || isAdmin());
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.createdByUid || isMonitor() || isAdmin());
+      allow update: if isSignedIn() && (isMonitor() || isAdmin());
     }
 
     match /complaintMessages/{id} {
       allow create: if isSignedIn();
       allow read: if isSignedIn() && (
         get(/databases/$(database)/documents/complaints/$(resource.data.complaintId)).data.createdByUid == request.auth.uid ||
-        get(/databases/$(database)/documents/complaints/$(resource.data.complaintId)).data.assignedMonitorId == request.auth.uid ||
+        isMonitor() ||
         isAdmin()
       );
     }
@@ -383,6 +402,36 @@ service cloud.firestore {
     match /chatHistory/{docId} {
       allow create: if isSignedIn() && incoming().uid == request.auth.uid;
       allow read, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------------
+    // Transaction Requests Queue Rules
+    // -------------------------------------------------------------------------
+    match /transactionRequests/{requestId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && (
+        resource.data.requesterUid == request.auth.uid ||
+        resource.data.senderUid == request.auth.uid ||
+        resource.data.askerId == request.auth.uid ||
+        resource.data.senderId == request.auth.uid ||
+        isMonitor() || isAdmin()
+      );
+      allow update: if isSignedIn() && (isMonitor() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Transaction Ratings Rules
+    // -------------------------------------------------------------------------
+    match /transactionRatings/{ratingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (
+        incoming().ratedByUid == request.auth.uid ||
+        incoming().ratedByUserUid == request.auth.uid ||
+        incoming().senderId == request.auth.uid ||
+        incoming().senderUid == request.auth.uid
+      );
+      allow update, delete: if isAdmin();
     }
   }
 }

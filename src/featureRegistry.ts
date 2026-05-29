@@ -12,7 +12,7 @@ export const featureRegistry: Feature[] = [
   {
     id: "dashboard",
     title: "Dashboard",
-    description: "Your central operational overview. Monitor real-time debt status and upcoming operational notifications.",
+    description: "Your central dashboard. Monitor real-time debt status and recent activity.",
     route: "/dashboard",
     tutorialEnabled: true,
     roleAccess: ["user", "monitor", "admin"],
@@ -20,8 +20,8 @@ export const featureRegistry: Feature[] = [
   },
   {
     id: "profile",
-    title: "Profile & Identity",
-    description: "Manage your credentials, view your ledger history, and handle security settings.",
+    title: "Profile",
+    description: "Manage your account details, view transaction history, and check your net ledger balance.",
     route: "/profile",
     tutorialEnabled: true,
     roleAccess: ["user", "monitor", "admin"],
@@ -30,7 +30,7 @@ export const featureRegistry: Feature[] = [
   {
     id: "groups",
     title: "Groups",
-    description: "Collaborate within specialized community units.",
+    description: "Collaborate within shared community workspaces.",
     route: "/groups",
     tutorialEnabled: true,
     roleAccess: ["user", "monitor", "admin"],
@@ -39,15 +39,15 @@ export const featureRegistry: Feature[] = [
   {
     id: "blackbox",
     title: "Black Box",
-    description: "Submit anonymous complaints and establish secure communication channels with monitors.",
+    description: "Submit anonymous complaints and communicate anonymously with monitors.",
     route: "/blackbox",
     tutorialEnabled: true,
     roleAccess: ["user", "monitor", "admin"]
   },
   {
     id: "monitor",
-    title: "Council Workspace",
-    description: "Monitor complaints, manage warnings, and resolve legislative bills.",
+    title: "Monitor Workspace",
+    description: "Monitor complaints, manage warnings, and review submitted bills.",
     route: "/monitor",
     tutorialEnabled: true,
     roleAccess: ["monitor", "admin"],
@@ -56,7 +56,7 @@ export const featureRegistry: Feature[] = [
   {
     id: "control",
     title: "Control Panel",
-    description: "Advanced administrative oversight: validate users, enforce system-wide protocols, and manage ledger datasets.",
+    description: "Admin panel to validate signups, manage system configurations, and edit user records.",
     route: "/control",
     tutorialEnabled: true,
     roleAccess: ["admin"],

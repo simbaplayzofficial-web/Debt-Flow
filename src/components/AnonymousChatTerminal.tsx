@@ -32,7 +32,7 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
   threadId, 
   senderType 
 }) => {
-  const sendAnonymousChatMessage = useStore(state => state.sendAnonymousChatMessage);
+  const sendComplaintMessage = useStore(state => state.sendComplaintMessage);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -66,7 +66,7 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
       }, 100);
     }, (err) => {
       console.error("Chat terminal listener failed:", err);
-      setError("Secure channel decryption failure. Thread has strict access policies.");
+      setError("Could not load messages. Chat has strict access rules.");
       setLoading(false);
     });
 
@@ -84,7 +84,7 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
       setInputText('');
     } catch (err: any) {
       console.error(err);
-      setError("Package packet transmission rejected.");
+      setError("Failed to send message.");
     } finally {
       setSending(false);
     }
@@ -106,13 +106,13 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
         <div className="flex items-center gap-2">
           <Terminal size={14} className="text-emerald-500 animate-pulse" />
           <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-400">
-            Anonymous Line Established
+            Anonymous Chat
           </span>
         </div>
         <div className="flex items-center gap-1.5 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">
           <Lock size={10} className="text-emerald-500" />
           <span className="text-[8px] uppercase tracking-wider text-emerald-500">
-            Identity Protected
+            Anonymous
           </span>
         </div>
       </div>
@@ -122,11 +122,11 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
         <div className="flex items-center gap-2">
           <Cpu size={12} className="text-emerald-500" />
           <span className="text-[8px] text-emerald-600 uppercase tracking-wider">
-            Secure Complaint Channel
+            Complaint Channel
           </span>
         </div>
         <span className="text-[8px] font-bold text-emerald-500 bg-emerald-950/40 px-1.5 py-0.5 rounded animate-pulse">
-          ● ONLINE_SECURE
+          ● ACTIVE
         </span>
       </div>
 
@@ -135,7 +135,7 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
         {loading ? (
           <div className="h-full flex flex-col items-center justify-center space-y-2 py-10">
             <Loader2 className="animate-spin text-emerald-500" size={20} />
-            <span className="text-[9px] text-emerald-600 uppercase tracking-widest animate-pulse">Decrypting secure ledger...</span>
+            <span className="text-[9px] text-emerald-600 uppercase tracking-widest animate-pulse">Loading messages...</span>
           </div>
         ) : error ? (
           <div className="p-4 bg-red-950/20 border border-red-500/20 rounded-xl text-red-500 text-center space-y-2 my-10">
@@ -145,8 +145,8 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
         ) : messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-2 opacity-50 my-10">
             <HelpCircle size={20} className="text-emerald-600" />
-            <p className="text-[10px] text-emerald-600 uppercase tracking-wider font-bold">ledger packet empty</p>
-            <p className="text-[9px] text-neutral-500 italic max-w-xs uppercase">No secure transmissions recorded on this line yet.</p>
+            <p className="text-[10px] text-emerald-600 uppercase tracking-wider font-bold">no messages</p>
+            <p className="text-[9px] text-neutral-500 italic max-w-xs uppercase">No messages recorded in this thread yet.</p>
           </div>
         ) : (
           messages.map((msg, idx) => {
@@ -162,7 +162,7 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
                 <span className={`text-[8px] uppercase tracking-wider mb-1 font-bold ${
                   isMe ? 'text-emerald-500' : 'text-neutral-500'
                 }`}>
-                  {isMe ? '• YOU' : '• SECURE OPERATOR'}
+                  {isMe ? '• YOU' : '• MONITOR'}
                 </span>
 
                 {/*Message Bubbles*/}
@@ -193,7 +193,7 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Transmit secure message packets..."
+          placeholder="Type your message here..."
           disabled={loading || !!error}
           className="flex-1 bg-neutral-950/95 border border-emerald-950 text-xs text-emerald-400 placeholder-emerald-950 focus:placeholder-emerald-800 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/20 transition-all font-mono"
         />

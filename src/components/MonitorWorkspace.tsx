@@ -13,11 +13,6 @@ import { motion, AnimatePresence } from 'motion/react';
 type WorkspaceTab = 'validations' | 'bill_filing' | 'complaints' | 'enforcement';
 
 export const MonitorWorkspace: React.FC = () => {
-  // In the MonitorWorkspace component:
-  // Instead of:
-  // const { anonymousComplaints, ... } = useStore();
-  // We need to fetch and manage complaints in the component based on the new local state.
-  // ...
   const { 
     transactions, users, approveTransaction, rejectTransaction, 
     currentUser, roleRequests, rolesConfig, updateRolesConfig, resolveRoleRequest,
@@ -25,19 +20,11 @@ export const MonitorWorkspace: React.FC = () => {
     announcements, postAnnouncement, deleteAnnouncement, debtAdjustments,
     systemStatus, updateSystemStatus, issueWarning, revokeWarning, updateWarningRules, deleteUser,
     warningRules, allWarnings,
-    claimComplaint, resolveComplaint
+    claimComplaint, resolveComplaint, anonymousComplaints,
+    updateComplaintStatus, updateComplaintNotes, deleteComplaint,
+    transactionRequests, approveTransactionRequest, rejectTransactionRequest
   } = useStore();
   
-  // ...
-  // When rendering the list:
-  // Use localComplaints instead of anonymousComplaints
-  // When claiming:
-  // await claimComplaint(complaintId);
-  // When resolving:
-  // await resolveComplaint(complaintId);
-  // When sending message:
-  // await sendComplaintMessage(complaintId, message);
-
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('validations');
   const [loading, setLoading] = useState<string | null>(null);
   const [resolutionModal, setResolutionModal] = useState<string | null>(null);
@@ -48,32 +35,6 @@ export const MonitorWorkspace: React.FC = () => {
   const [tempNotes, setTempNotes] = useState('');
   const [verdictInput, setVerdictInput] = useState('');
   const [isNotesSaving, setIsNotesSaving] = useState(false);
-  const [localComplaints, setLocalComplaints] = useState<Complaint[]>([]);
-  const [complaintsLoading, setComplaintsLoading] = useState(true);
-
-  // Realtime Listener for Complaints
-  useEffect(() => {
-    setComplaintsLoading(true);
-    const q = query(
-      collection(db, "complaints"),
-      where("status", "==", complaintsSubTab),
-      orderBy("createdAt", "desc")
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const complaintData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Complaint[];
-      setLocalComplaints(complaintData);
-      setComplaintsLoading(false);
-    }, (error) => {
-      console.error("Complaint listener failed:", error);
-      setComplaintsLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [complaintsSubTab]);
 
   // Bill Filing states
   const [billTitle, setBillTitle] = useState('');
@@ -109,9 +70,9 @@ export const MonitorWorkspace: React.FC = () => {
       await issueWarning(warnUser, 0, warnReason);
       setWarnUser('');
       setWarnReason('');
-      alert("WARNING LOGGED: User integrity adjusted.");
+      alert("Success: Warning has been issued to the user.");
     } catch (err: any) {
-      alert(`ENFORCEMENT FAILED: ${err.message}`);
+      alert(`Error issuing warning: ${err.message}`);
     } finally {
       setIsSubmittingWarn(false);
     }
@@ -120,9 +81,9 @@ export const MonitorWorkspace: React.FC = () => {
   const handleUpdateRules = async () => {
     try {
       await updateWarningRules(editingRules);
-      alert("DIRECTIVES UPDATED: System rules synchronized.");
+      alert("Success: Warning rules updated successfully.");
     } catch (err: any) {
-      alert(`UPDATE FAILED: ${err.message}`);
+      alert(`Error updating rules: ${err.message}`);
     }
   };
 
@@ -136,7 +97,7 @@ export const MonitorWorkspace: React.FC = () => {
       setBillDescription('');
       setBillCategory('Governance');
       setBillPriority('Medium');
-      alert("LEGISLATIVE PROTOCOL INITIATED: Bill published.");
+      alert("Success: Bill has been filed and is under review.");
       setActiveTab('complaints'); // Redirect to complaints tab
     } catch (err: any) {
       alert(`FILING FAILED: ${err.message}`);
@@ -159,7 +120,15 @@ export const MonitorWorkspace: React.FC = () => {
     .filter(t => t.status === 'pending')
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
-  const pendingComplaintsCount = localComplaints.filter(c => c.status === 'pending').length;
+  const pendingRequests = (transactionRequests || [])
+    .filter(r => r.status === 'pending')
+    .sort((a, b) => {
+      const dbB = b.createdAt?.seconds || b.createdAt || 0;
+      const dbA = a.createdAt?.seconds || a.createdAt || 0;
+      return new Date(dbB).getTime() - new Date(dbA).getTime();
+    });
+
+  const pendingComplaintsCount = anonymousComplaints.filter(c => c.status === 'pending').length;
   const pendingCases = resolvingDeck.filter(c => c.status === 'under_investigation').length;
   const pendingDebts = debtAdjustments.filter(a => a.status === 'REQUESTED').length;
 
@@ -198,8 +167,8 @@ export const MonitorWorkspace: React.FC = () => {
 
       {/* Workspace Tabs */}
       <div className="flex flex-wrap gap-2 p-1 bg-neutral-950 border border-neutral-800 rounded-2xl">
-         {[
-           { id: 'validations', label: 'Validations', icon: ListChecks, count: pendingTransactions.length + pendingDebts },
+          {[
+            { id: 'validations', label: 'Validations', icon: ListChecks, count: pendingRequests.length + pendingTransactions.length + pendingDebts },
            { id: 'bill_filing', label: 'Bill Filing', icon: Send, count: 0 },
            { id: 'complaints', label: 'Complaints', icon: ShieldAlert, count: pendingComplaintsCount },
            ...(currentUser?.role === 'admin' ? [{ id: 'enforcement', label: 'Enforcement', icon: Gavel, count: pendingCases }] : []),
@@ -236,10 +205,126 @@ export const MonitorWorkspace: React.FC = () => {
               exit={{ opacity: 0, y: -10 }}
               className="space-y-6"
             >
+              {/* 1. Brand New Transaction Requests Queue */}
+              <div className="border border-neutral-800 bg-neutral-950/30 rounded-[2rem] p-6 lg:p-8 space-y-6">
+                <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
+                  <h2 className="text-lg font-black tracking-tight italic flex items-center gap-2 text-blue-400 uppercase">
+                    <ListChecks size={20} className="text-blue-400" />
+                    Counterparty Request Validations ({pendingRequests.length})
+                  </h2>
+                  <p className="text-[10px] font-black text-neutral-500 uppercase tracking-widest font-mono">
+                    AWAITING RESOLUTION
+                  </p>
+                </div>
+
+                <div className="grid gap-4">
+                  {pendingRequests.map(req => {
+                    const requester = users.find(u => u.id === req.requesterUid);
+                    const sender = users.find(u => u.id === req.senderUid);
+                    
+                    return (
+                      <div key={req.id} className="bg-neutral-900 border border-neutral-800 hover:border-blue-500/30 rounded-3xl p-6 relative overflow-hidden transition-all">
+                        <div className="flex flex-col lg:flex-row gap-6 items-center">
+                          <div className="flex-1 w-full flex items-center justify-around bg-neutral-950 p-4 rounded-2xl border border-neutral-850">
+                            <div className="text-center">
+                              <p className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1 italic">Requester (Borrower)</p>
+                              <div className="flex items-center justify-center gap-2">
+                                <User size={13} className="text-blue-400" />
+                                <span className="text-xs font-black text-neutral-100">@{requester?.username || 'Unknown'}</span>
+                              </div>
+                            </div>
+                            <span className="text-neutral-700 font-mono text-sm">➡️</span>
+                            <div className="text-center">
+                              <p className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1 italic">Sender (Performer)</p>
+                              <div className="flex items-center justify-center gap-2">
+                                <User size={13} className="text-emerald-400" />
+                                <span className="text-xs font-black text-neutral-100">@{sender?.username || 'Unknown'}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1 text-center lg:text-left min-w-[200px]">
+                            <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Specifications</p>
+                            <p className="text-sm font-black text-neutral-100 uppercase tracking-tight">
+                              {req.isCommunityService ? "Community Service Work" : "Regular Translation Work"}
+                            </p>
+                            {req.reason && <p className="text-xs text-neutral-400 italic">"{req.reason}"</p>}
+                          </div>
+
+                          {/* Pages display */}
+                          <div className="bg-neutral-900 border border-neutral-800 px-6 py-3 rounded-xl text-center min-w-[100px]">
+                            <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-1 italic">Pages</p>
+                            <p className="text-xl font-black italic text-neutral-200 tracking-tighter font-mono">
+                              {req.pages ?? 0}
+                            </p>
+                          </div>
+
+                          {/* Debt display */}
+                          <div className="bg-blue-600/10 border border-blue-600/20 px-6 py-3 rounded-xl text-center min-w-[100px]">
+                            <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1 italic">Value</p>
+                            <p className="text-xl font-black italic text-blue-500 tracking-tighter font-mono">
+                              {req.isCommunityService ? '0 CS' : `${req.debt ?? req.amount ?? 0} DB`}
+                            </p>
+                          </div>
+
+                          <div className="flex gap-2 w-full lg:w-auto">
+                            <button 
+                              type="button"
+                              onClick={async () => {
+                                const verdict = prompt("Enter specific Council directive/approver verdict:") || "Approved and verified by Council Monitor";
+                                setLoading(req.id);
+                                try {
+                                  await approveTransactionRequest(req.id, verdict);
+                                  alert("Transaction Request Approved & Main Ledger Updated.");
+                                } catch (err: any) {
+                                  alert(err.message || "Failed to approve.");
+                                }
+                                setLoading(null);
+                              }}
+                              disabled={!!loading}
+                              className="flex-1 lg:w-28 bg-blue-600 hover:bg-blue-500 text-white font-black py-3 rounded-2xl flex flex-col items-center justify-center transition-all shadow-md active:scale-95 text-xs text-center border border-blue-700"
+                            >
+                              <CheckCircle2 size={18} className="mb-1" />
+                              <span className="text-[8px] uppercase tracking-widest font-black">Approve</span>
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={async () => {
+                                const verdict = prompt("Enter specific rejection reason:") || "Rejected by Council Monitor";
+                                setLoading(req.id);
+                                try {
+                                  await rejectTransactionRequest(req.id, verdict);
+                                  alert("Transaction Request Rejected.");
+                                } catch (err: any) {
+                                  alert(err.message || "Failed to reject.");
+                                }
+                                setLoading(null);
+                              }}
+                              disabled={!!loading}
+                              className="flex-1 lg:w-28 bg-neutral-850 hover:bg-red-950 text-neutral-400 hover:text-red-500 border border-neutral-800 hover:border-red-900/30 py-3 rounded-2xl flex flex-col items-center justify-center transition-all active:scale-95 text-xs text-center"
+                            >
+                              <XCircle size={18} className="mb-1" />
+                              <span className="text-[8px] uppercase tracking-widest font-black">Reject</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {pendingRequests.length === 0 && (
+                    <div className="bg-neutral-900/10 border border-neutral-800 border-dashed rounded-[2rem] p-12 text-center">
+                      <ShieldCheck size={40} className="mx-auto text-neutral-850 mb-4" />
+                      <p className="text-neutral-600 text-xs font-black uppercase tracking-wider italic">No queue items. System is clear.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Old System Transaction Validations */}
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold tracking-tight italic flex items-center gap-2">
                   <ListChecks className="text-blue-500" />
-                  Transaction Validations
+                  Legacy Direct Validations
                 </h2>
               </div>
               
@@ -524,7 +609,7 @@ export const MonitorWorkspace: React.FC = () => {
                 {/* Sub tabs matching pending, under_review, resolved, archived */}
                 <div className="flex bg-neutral-900 p-1 border border-neutral-800 rounded-xl gap-1">
                   {(['pending', 'under_review', 'resolved'] as const).map(tab => {
-                    const count = localComplaints.filter(c => c.status === tab).length;
+                    const count = anonymousComplaints.filter(c => c.status === tab).length;
                     return (
                       <button
                         key={tab}
@@ -669,7 +754,7 @@ export const MonitorWorkspace: React.FC = () => {
                                   </div>
                                   <button
                                     onClick={async () => {
-                                      await claimAnonymousComplaint(complaint.id);
+                                      await claimComplaint(complaint.id);
                                     }}
                                     className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white text-[10px] uppercase font-bold tracking-widest font-mono rounded-xl transition-all shadow-md shadow-orange-500/10 cursor-pointer"
                                   >
@@ -696,7 +781,7 @@ export const MonitorWorkspace: React.FC = () => {
                                     <p className="text-[9px] text-neutral-400">Establish a real-time anonymized link with complainant.</p>
                                     <button
                                       onClick={async () => {
-                                        await openAnonymousLine(complaint.id);
+                                        await claimComplaint(complaint.id);
                                       }}
                                       className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] uppercase tracking-widest font-bold rounded-xl transition-all cursor-pointer shadow-md shadow-emerald-600/10"
                                     >
@@ -734,7 +819,7 @@ export const MonitorWorkspace: React.FC = () => {
                               onClick={async () => {
                                 setIsNotesSaving(true);
                                 try {
-                                  await updateAnonymousComplaintNotes(complaint.id, tempNotes);
+                                  await updateComplaintNotes(complaint.id, tempNotes);
                                   alert("Notes synchronized with central ledger.");
                                 } catch (err) {
                                   console.error(err);
@@ -761,7 +846,7 @@ export const MonitorWorkspace: React.FC = () => {
                             {complaint.status !== 'under_review' && (
                               <button
                                 onClick={async () => {
-                                  await updateAnonymousComplaintStatus(complaint.id, 'under_review');
+                                  await updateComplaintStatus(complaint.id, 'under_review');
                                 }}
                                 className="py-2.5 bg-orange-600/10 border border-orange-500/20 text-orange-400 text-[9px] font-black uppercase rounded-lg hover:bg-orange-600 hover:text-white transition-all text-center"
                               >
@@ -771,7 +856,7 @@ export const MonitorWorkspace: React.FC = () => {
                             {complaint.status !== 'resolved' && (
                               <button
                                 onClick={async () => {
-                                  await updateAnonymousComplaintStatus(complaint.id, 'resolved');
+                                  await updateComplaintStatus(complaint.id, 'resolved');
                                 }}
                                 className="py-2.5 bg-green-600/10 border border-green-500/20 text-green-400 text-[9px] font-black uppercase rounded-lg hover:bg-green-600 hover:text-white transition-all text-center"
                               >
@@ -781,7 +866,7 @@ export const MonitorWorkspace: React.FC = () => {
                             {complaint.status !== 'archived' && (
                               <button
                                 onClick={async () => {
-                                  await updateAnonymousComplaintStatus(complaint.id, 'archived');
+                                  await updateComplaintStatus(complaint.id, 'archived');
                                 }}
                                 className="py-2.5 bg-neutral-800 border border-neutral-700 text-neutral-300 text-[9px] font-black uppercase rounded-lg hover:bg-neutral-700 transition-all text-center col-span-2"
                               >
@@ -793,9 +878,9 @@ export const MonitorWorkspace: React.FC = () => {
                           <button
                             onClick={async () => {
                               if (confirm("Are you absolutely certain you wish to purge this database file record? This action is non-reversible.")) {
-                                await deleteAnonymousComplaint(complaint.id);
-                                setSelectedComplaintId(null);
-                                alert("Transmission purged completely.");
+                                  await deleteComplaint(complaint.id);
+                                  setSelectedComplaintId(null);
+                                  alert("Transmission purged completely.");
                               }
                             }}
                             className="w-full py-2 bg-red-600/10 border border-red-500/20 text-red-500 text-[9px] font-black uppercase rounded-lg hover:bg-red-600 hover:text-white transition-all text-center mt-2"

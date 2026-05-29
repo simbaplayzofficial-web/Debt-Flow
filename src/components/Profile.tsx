@@ -21,6 +21,7 @@ import {
   RefreshCw,
   MessageSquare,
   EyeOff,
+  Video,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { BlackBox } from "./BlackBox";
@@ -67,9 +68,16 @@ export default function Profile() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
 
+  const [txAmount, setTxAmount] = useState(1);
+  const [txType, setTxType] = useState("work request");
+  const [txReason, setTxReason] = useState("");
+  const [txDeadline, setTxDeadline] = useState("");
+  const [myRole, setMyRole] = useState<"requester" | "sender">("requester");
+
   const [ratingInput, setRatingInput] = useState<{
     txId: string;
     value: number;
+    review: string;
   } | null>(null);
 
   // Derive People in Debt and People I Owe from the global state/ledgers
@@ -121,35 +129,39 @@ export default function Profile() {
 
   // Rating requests for me as Asker (Borrower)
   const pendingRatings = transactions.filter(
-    (t) => t.askerId === currentUser?.id && t.status === "approved",
+    (t) => (t.askerId === currentUser?.id || t.requesterUid === currentUser?.id) && 
+           (t.status === "awaiting_rating" || (t.status === "approved" && !t.rating)),
   );
 
   const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetAskerId || isSubmitting) return;
+    if (!currentUser || !targetAskerId || isSubmitting) return;
 
     setTxError(null);
     setIsSubmitting(true);
     try {
-      const debt = calculateDebt(pages);
+      const pagesNum = Number(pages) || 0;
+      const debt = isCommunityServiceTx ? 0 : calculateDebt(pagesNum);
+
       if (!isCommunityServiceTx) {
-        const targetLedger = calculateNetLedger(targetAskerId);
-        const projected = targetLedger.netLedger - debt;
+        const ledger = calculateNetLedger(targetAskerId);
+        const projected = ledger.netLedger - debt;
         if (projected < -10) {
-          setTxError(`Action Blocked: Debt limit reached. @${users.find(u => u.id === targetAskerId)?.username} cannot go below -10 DB (Projected: ${projected} DB).`);
+          setTxError(`Action Blocked: Borrower will exceed debt limit of -10! Projected: ${projected} DB.`);
           setIsSubmitting(false);
           return;
         }
       }
 
-      await addTransaction(targetAskerId, pages, isCommunityServiceTx);
+      await addTransaction(targetAskerId, pagesNum, isCommunityServiceTx);
+      
       setShowAddModal(false);
-      setPages(1);
-      setTargetAskerId("");
+      setPages(0);
       setIsCommunityServiceTx(false);
+      setTargetAskerId("");
     } catch (err: any) {
       console.error("Submission UI Error:", err);
-      setTxError(err.message || "Failed to submit transaction.");
+      setTxError(err.message || "Failed to record transaction request.");
     } finally {
       setIsSubmitting(false);
     }
@@ -390,7 +402,7 @@ export default function Profile() {
                       placeholder="New identifier..."
                     />
                     <p className="text-[9px] text-neutral-600 mt-2 italic">
-                      Requires uniqueness protocol check before validation.
+                      Username must be unique.
                     </p>
                   </div>
                   <button
@@ -400,7 +412,7 @@ export default function Profile() {
                     }
                     className="w-full bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 text-neutral-200 text-[10px] font-black py-3 rounded-xl uppercase tracking-widest transition-all border border-neutral-700"
                   >
-                    {isUpdatingProfile ? "Processing..." : "Update Identity"}
+                    {isUpdatingProfile ? "Processing..." : "Update Username"}
                   </button>
                 </form>
               ) : activeSettingsTab === "security" ? (
@@ -532,7 +544,7 @@ export default function Profile() {
                         onClick={() => useStore.setState({ isTutorialRunning: true })}
                         className="text-neutral-500 hover:text-blue-500 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 italic"
                     >
-                        <Film size={12}/> Replay Onboarding
+                        <Video size={12}/> Replay Onboarding
                     </button>
                   </div>
                 </div>
@@ -562,66 +574,128 @@ export default function Profile() {
                   <AlertTriangle size={14} />
                   Pending Work Ratings
                 </h3>
-                {pendingRatings.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="bg-orange-500/5 border border-orange-500/10 p-5 rounded-2xl"
-                  >
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-bold text-neutral-100">
-                            {users.find((u) => u.id === tx.senderId)?.username}{" "}
-                            lended you work
-                          </p>
-                          {tx.isCommunityService && (
-                            <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
-                              CS
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-neutral-500">
-                          Wait for your feedback...
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-lg font-black italic text-orange-500">
-                          {tx.isCommunityService ? "0 (CS)" : tx.debt} DEBT
-                        </p>
-                        <p className="text-[10px] text-neutral-500">
-                          {tx.pages} pages
-                        </p>
-                      </div>
-                    </div>
+                {pendingRatings.map((tx) => {
+                  const isCurrentEditing = ratingInput?.txId === tx.id;
+                  const currentStars = isCurrentEditing ? ratingInput.value : 0;
+                  const currentReview = isCurrentEditing ? ratingInput.review : "";
 
-                    <div className="flex flex-col gap-2">
-                      <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest text-center">
-                        Rate out of 5
-                      </p>
-                      <div className="flex items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-2">
-                        <div className="flex gap-2">
-                          {[1, 2, 3, 4, 5].map((v) => (
-                            <button
-                              key={v}
-                              onClick={async () => {
-                                await useStore
-                                  .getState()
-                                  .submitRating(tx.id, v);
-                              }}
-                              className="p-1 hover:text-yellow-500 text-neutral-600 transition-colors"
-                            >
-                              <Star
-                                size={28}
-                                fill="currentColor"
-                                strokeWidth={1}
-                              />
-                            </button>
-                          ))}
+                  return (
+                    <div
+                      key={tx.id}
+                      className="bg-orange-500/5 border border-orange-500/10 p-5 rounded-2xl"
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-bold text-neutral-100">
+                              {users.find((u) => u.id === tx.senderId || u.id === tx.senderUid)?.username || "Operational Associate"}{" "}
+                              lent labor/debt
+                            </p>
+                            {tx.isCommunityService && (
+                              <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
+                                CS
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-neutral-500 font-mono mt-1">
+                            Type: {tx.type || "transaction"} | Reason: {tx.reason || "Unspecified"}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-black italic text-orange-500">
+                            {tx.isCommunityService ? "0 (CS)" : tx.amount || tx.debt} DEBT
+                          </p>
+                          <p className="text-[10px] text-neutral-500">
+                            {tx.pages || tx.amount} DB value
+                          </p>
                         </div>
                       </div>
+
+                      <div className="flex flex-col gap-3">
+                        <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest text-center">
+                          Assign rating for completed credentials
+                        </p>
+                        <div className="flex items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-2">
+                          <div className="flex gap-2">
+                            {[1, 2, 3, 4, 5].map((v) => {
+                              const active = isCurrentEditing ? currentStars >= v : false;
+                              return (
+                                <button
+                                  key={v}
+                                  type="button"
+                                  onClick={() => {
+                                    setRatingInput({
+                                      txId: tx.id,
+                                      value: v,
+                                      review: currentReview
+                                    });
+                                  }}
+                                  className={`p-1 transition-colors ${active ? 'text-yellow-500' : 'text-neutral-600 hover:text-yellow-500/70'}`}
+                                >
+                                  <Star
+                                    size={28}
+                                    fill={active ? "currentColor" : "none"}
+                                    strokeWidth={2}
+                                  />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Inline Review Text Block */}
+                        {isCurrentEditing && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            className="space-y-2 mt-2"
+                          >
+                            <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
+                              Write Review / Professional Feedback
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={currentReview}
+                              onChange={(e) => {
+                                setRatingInput({
+                                  txId: tx.id,
+                                  value: currentStars,
+                                  review: e.target.value
+                                });
+                              }}
+                              placeholder="Describe work quality, operational efficiency, etc."
+                              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-neutral-200 focus:outline-none focus:border-orange-500 transition-all text-xs"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setRatingInput(null)}
+                                className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 font-bold py-2 rounded-lg text-[10px] uppercase transition-all"
+                              >
+                                Clear
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const { submitTransactionRating } = useStore.getState();
+                                    await submitTransactionRating(tx.id, currentStars, currentReview);
+                                    setRatingInput(null);
+                                  } catch (err: any) {
+                                    alert(err.message || "Failed to submit rating.");
+                                  }
+                                }}
+                                className="flex-1 bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 text-white font-black py-2 rounded-lg text-[10px] uppercase tracking-wider transition-all"
+                              >
+                                Decrypt & Rate
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -650,36 +724,61 @@ export default function Profile() {
                             </span>
                           )}
                         </p>
-                        <p className="text-[10px] text-neutral-500">
-                          {tx.senderId === currentUser?.id
-                            ? `Lended work to @${users.find((u) => u.id === tx.askerId)?.username}`
-                            : `Received work from @${users.find((u) => u.id === tx.senderId)?.username}`}
-                          <span
-                            className={`ml-2 uppercase font-black px-1 rounded text-[8px] ${
-                              tx.status === "pending"
-                                ? "bg-yellow-500/10 text-yellow-500"
-                                : tx.status === "approved"
-                                  ? "bg-blue-500/10 text-blue-500"
-                                  : tx.status === "rejected"
-                                    ? "bg-red-500/10 text-red-500"
-                                    : "bg-green-500/10 text-green-500"
-                            }`}
-                          >
-                            [{tx.status}]
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-black italic text-neutral-200">
-                        {tx.senderId === currentUser?.id ? "+" : "-"}
-                        {tx.isCommunityService ? 0 : tx.debt} DB
-                      </p>
-                      {tx.status === "completed" && (
-                        <div className="flex items-center gap-1 justify-end text-[10px] text-yellow-500 font-bold">
-                          <Star size={10} fill="currentColor" /> {tx.rating}
-                        </div>
-                      )}
+                         <p className="text-[10px] text-neutral-500 flex flex-wrap items-center gap-2 mt-1">
+                           <span>
+                             {tx.senderId === currentUser?.id || tx.senderUid === currentUser?.id
+                               ? `Lended work to @${users.find((u) => u.id === tx.askerId || u.id === tx.requesterUid)?.username || "Operational Associate"}`
+                               : `Received work from @${users.find((u) => u.id === tx.senderId || u.id === tx.senderUid)?.username || "Operational Associate"}`}
+                           </span>
+                           <span
+                             className={`uppercase font-black px-1 rounded text-[8px] ${
+                               tx.status === "pending"
+                                 ? "bg-amber-500/10 text-amber-500"
+                                 : tx.status === "approved" || tx.status === "active"
+                                   ? "bg-blue-500/10 text-blue-400"
+                                   : tx.status === "awaiting_rating"
+                                     ? "bg-orange-500/10 text-orange-400 animate-pulse font-black"
+                                     : tx.status === "rejected"
+                                       ? "bg-red-500/10 text-red-500"
+                                       : "bg-emerald-500/10 text-emerald-400"
+                             }`}
+                           >
+                             [{tx.status}]
+                           </span>
+
+                           {/* Mark Work Done CTA Button for performer */}
+                           {(tx.status === 'active' || tx.status === 'approved') && (tx.senderId === currentUser?.id || tx.senderUid === currentUser?.id) && (
+                             <button
+                               type="button"
+                               onClick={async () => {
+                                 if (confirm("Initiate completion callback? This will signal the requester to audit and rate your work.")) {
+                                   try {
+                                     const { completeTransactionWork } = useStore.getState();
+                                     await completeTransactionWork(tx.id);
+                                     alert("Success: Task completed. Requester has been notified for feedback.");
+                                   } catch (err: any) {
+                                     alert(err.message || "Failed to submit completion signals.");
+                                   }
+                                 }
+                               }}
+                               className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 hover:border-orange-500/30 text-orange-400 hover:text-orange-300 px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-wider transition-all"
+                             >
+                               Mark Work Done
+                             </button>
+                           )}
+                         </p>
+                       </div>
+                     </div>
+                     <div className="text-right">
+                       <p className="text-sm font-black italic text-neutral-200">
+                         {tx.senderId === currentUser?.id || tx.senderUid === currentUser?.id ? "+" : "-"}
+                         {tx.isCommunityService ? 0 : tx.amount || tx.debt} DB
+                       </p>
+                       {(tx.status === "completed" && tx.rating) && (
+                         <div className="flex items-center gap-1 justify-end text-[10px] text-yellow-500 font-bold">
+                           <Star size={10} fill="currentColor" /> {tx.rating}
+                         </div>
+                       )}
                     </div>
                   </div>
                 ))}
@@ -1111,11 +1210,10 @@ export default function Profile() {
                 <div className="bg-neutral-900/30 border border-neutral-850 border-dashed rounded-2xl p-8 py-10 text-center text-neutral-500 space-y-2">
                   <EyeOff size={24} className="mx-auto text-neutral-750" />
                   <p className="text-[10px] font-black uppercase tracking-wider">
-                    No Active Grievance Lines
+                    No Active Complaints
                   </p>
                   <p className="text-[9px] text-neutral-600 italic">
-                    When you submit anonymous transmissions through the Black Box
-                    systems, they will manifest here for communication.
+                    When you submit anonymous complaints through the Black Box, your threads will appear here so you can chat anonymously with monitors.
                   </p>
                 </div>
               )}
@@ -1133,25 +1231,29 @@ export default function Profile() {
             className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl"
           >
             <div className="p-8">
-              <h3 className="text-xl font-bold mb-6 italic">
+              <h3 className="text-xl font-bold mb-6 italic text-neutral-100 uppercase tracking-tight">
                 Record New Transaction
               </h3>
               <form onSubmit={handleAddTransaction} className="space-y-4">
+                
+                {/* 1. Community Service Transaction Checkbox */}
                 <div className="flex items-center gap-3 p-4 bg-neutral-950 border border-neutral-800 rounded-2xl mb-4">
                   <input
                     type="checkbox"
                     id="cs-check"
                     checked={isCommunityServiceTx}
                     onChange={(e) => setIsCommunityServiceTx(e.target.checked)}
-                    className="w-4 h-4 bg-neutral-900 border-neutral-800 rounded focus:ring-blue-500"
+                    className="w-4 h-4 bg-neutral-900 border-neutral-850 rounded focus:ring-blue-500 cursor-pointer"
                   />
                   <label
                     htmlFor="cs-check"
-                    className="text-xs font-bold text-blue-500 uppercase tracking-widest cursor-pointer"
+                    className="text-xs font-bold text-blue-500 uppercase tracking-widest cursor-pointer select-none"
                   >
                     Community Service Transaction
                   </label>
                 </div>
+
+                {/* 2. Borrower Selection */}
                 <div>
                   <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">
                     Asked By (Borrower)
@@ -1162,10 +1264,10 @@ export default function Profile() {
                       setTargetAskerId(e.target.value);
                       setTxError(null);
                     }}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm mb-2"
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm"
                     required
                   >
-                    <option value="">Select a user...</option>
+                    <option value="">Select borrower...</option>
                     {users
                       .filter(
                         (u) =>
@@ -1173,83 +1275,75 @@ export default function Profile() {
                       )
                       .map((u) => (
                         <option key={u.id} value={u.id}>
-                          {u.username}
+                          @{u.username}
                         </option>
                       ))}
                   </select>
-
-                  {/* LIVE TARGET STATUS IN THE MODAL */}
-                  {targetAskerId && (
-                    (() => {
-                      const ledger = calculateNetLedger(targetAskerId);
-                      const debt = calculateDebt(pages);
-                      const projected = isCommunityServiceTx ? ledger.netLedger : ledger.netLedger - debt;
-                      const isDanger = projected < -10;
-                      const isNearLimit = projected <= -8 && projected >= -10;
-
-                      return (
-                        <div className={`p-3.5 rounded-xl border text-[11px] font-bold space-y-1.5 transition-all mt-2 ${
-                          isDanger
-                            ? 'bg-red-950/40 border-red-900/30 text-red-400'
-                            : isNearLimit
-                              ? 'bg-amber-950/30 border-amber-900/30 text-amber-500 animate-pulse'
-                              : 'bg-neutral-950 border border-neutral-850 text-neutral-400'
-                        }`}>
-                          <div className="flex justify-between">
-                            <span>Balance before transaction:</span>
-                            <span className="font-mono">{ledger.netLedger > 0 ? `+${ledger.netLedger}` : ledger.netLedger} DB</span>
-                          </div>
-                          {!isCommunityServiceTx && (
-                            <div className="flex justify-between">
-                              <span>Balance after transaction:</span>
-                              <span className={`font-mono font-black ${isDanger ? 'text-red-500' : isNearLimit ? 'text-amber-500' : 'text-emerald-400'}`}>
-                                {projected > 0 ? `+${projected}` : projected} DB
-                              </span>
-                            </div>
-                          )}
-                          {isDanger && (
-                            <p className="text-[10px] text-red-500 font-extrabold uppercase tracking-wider pt-1">
-                              ⚠️ Action Blocked: Borrower will exceed debt limit of -10!
-                            </p>
-                          )}
-                          {isNearLimit && !isDanger && (
-                            <p className="text-[10px] text-amber-500 font-extrabold uppercase tracking-wider pt-1">
-                              ⚠️ Warning: Borrower approaching debt limit!
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })()
-                  )}
                 </div>
+
+                {/* 3. Pages Input */}
                 <div>
                   <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">
                     Number of Pages
                   </label>
                   <input
                     type="number"
-                    min={1}
+                    min={0}
                     value={pages}
                     onChange={(e) => {
-                      setPages(parseInt(e.target.value) || 1);
+                      // Allow 0 pages, remove forced fallback to 1
+                      const val = e.target.value;
+                      setPages(val === "" ? 0 : Math.max(0, parseInt(val) || 0));
                       setTxError(null);
                     }}
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 focus:outline-none focus:border-blue-500 transition-all text-sm font-mono text-center"
                     required
                   />
                 </div>
-                <div className="p-4 bg-blue-600/5 border border-blue-600/10 rounded-xl mb-4 text-center">
-                  <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1">
-                    Calculated Debt Value
-                  </p>
-                  <p className="text-3xl font-black italic">
-                    {" "}
-                    {calculateDebt(pages)} DB
-                  </p>
-                </div>
+
+                {/* 4. Live calculated debt display */}
+                {targetAskerId && currentUser && (
+                  (() => {
+                    const debt = isCommunityServiceTx ? 0 : calculateDebt(pages);
+                    const ledger = calculateNetLedger(targetAskerId);
+                    const projected = ledger.netLedger - debt;
+                    const isDanger = projected < -10;
+                    const isNearLimit = projected <= -8 && projected >= -10;
+
+                    return (
+                      <div className={`p-4 bg-neutral-950 rounded-2xl border text-[11px] font-bold space-y-2 mt-2 transition-all ${
+                        isDanger
+                          ? "bg-red-950/40 border-red-900/30 text-red-400"
+                          : isNearLimit
+                            ? "bg-amber-950/30 border-amber-900/30 text-amber-500"
+                            : "border-neutral-850 text-neutral-400"
+                      }`}>
+                        <div className="flex justify-between">
+                          <span>Calculated Debt Value:</span>
+                          <span className="font-mono text-neutral-200 font-extrabold">{debt} DB</span>
+                        </div>
+                        <div className="flex justify-between border-t border-neutral-900 pt-1.5">
+                          <span>Borrower Net Balance:</span>
+                          <span className="font-mono">{ledger.netLedger > 0 ? `+${ledger.netLedger}` : ledger.netLedger} DB</span>
+                        </div>
+                        <div className="flex justify-between border-t border-neutral-900 pt-1.5">
+                          <span>Projected Net Balance:</span>
+                          <span className={`font-mono font-black ${isDanger ? 'text-red-500' : isNearLimit ? 'text-amber-500' : 'text-emerald-400'}`}>
+                            {projected > 0 ? `+${projected}` : projected} DB
+                          </span>
+                        </div>
+                        {isDanger && (
+                          <p className="text-[10px] text-red-500 font-extrabold uppercase tracking-wider pt-1 text-center">
+                            ⚠️ Action Blocked: Borrower will exceed debt limit of -10!
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()
+                )}
 
                 {txError && (
-                  <div className="p-3 bg-red-950/40 border border-red-900/30 text-red-500 text-xs font-bold rounded-xl uppercase tracking-wide text-center animate-pulse">
+                  <div className="p-3 bg-red-950/40 border border-red-900/30 text-red-500 text-xs font-bold rounded-xl uppercase tracking-wide text-center">
                     {txError}
                   </div>
                 )}
@@ -1258,19 +1352,19 @@ export default function Profile() {
                   <button
                     type="button"
                     onClick={() => setShowAddModal(false)}
-                    className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold py-3 rounded-xl transition-all text-xs uppercase"
+                    className="flex-1 bg-neutral-850 hover:bg-neutral-800 text-neutral-400 font-bold py-3 rounded-xl transition-all text-xs uppercase"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    disabled={!targetAskerId || !pages || isSubmitting}
-                    className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-3 rounded-xl transition-all text-sm uppercase shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                    disabled={!targetAskerId || isSubmitting}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-3 rounded-xl transition-all text-xs uppercase shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
                   >
                     {isSubmitting ? (
                       <>
                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Processing...
+                        Recording...
                       </>
                     ) : (
                       <>Record Transaction</>

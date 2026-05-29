@@ -24,7 +24,7 @@ export const ChatterPanel: React.FC = () => {
           <input 
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Search operational units..."
+            placeholder="Search members..."
             className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 pl-10 pr-4 text-xs text-white"
           />
         </div>
@@ -56,7 +56,7 @@ export const ChatterPanel: React.FC = () => {
           <ChatterWindow participant={selectedUser} />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-700 italic">
-            Select a unit to initiate data transmission.
+            Select a member to start a chat.
           </div>
         )}
       </div>
@@ -105,7 +105,7 @@ const ChatterWindow: React.FC<{ participant: UserProfile }> = ({ participant }) 
   return (
     <div className="flex flex-col h-full border border-neutral-800 rounded-2xl bg-neutral-900">
       <div className="p-4 border-b border-neutral-800 font-bold text-xs uppercase text-blue-500">
-        CHANNEL: {participant.username}
+        CHAT: {participant.username}
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         {messages.map((m, i) => (

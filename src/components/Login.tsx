@@ -103,7 +103,7 @@ export default function Login() {
 
     // Core validation checks
     if (!trimmedUsername || !password) {
-      useStore.setState({ authError: "All credentials are required to establish connection." });
+      useStore.setState({ authError: "All credentials are required." });
       return;
     }
 
@@ -150,8 +150,8 @@ export default function Login() {
         }
       }
     } catch (err: any) {
-      console.error("[UI_SUBMIT_FATAL] Error occurred during processing stream:", err);
-      useStore.setState({ authError: err.message || "A secure connection could not be established." });
+      console.error("[UI_SUBMIT_FATAL] Error occurred:", err);
+      useStore.setState({ authError: err.message || "An error occurred. Please try again." });
     } finally {
       setLoading(false);
     }
@@ -163,7 +163,7 @@ export default function Login() {
         bg: 'bg-red-500/10', 
         border: 'border-red-500/20', 
         text: 'text-red-400 shadow-sm shadow-red-500/10', 
-        label: 'Admin Terminal Access', 
+        label: 'Admin Account', 
         focus: 'focus:border-red-500 focus:ring-red-500/10', 
         button: 'bg-red-600 hover:bg-red-500 shadow-xl shadow-red-950/40 text-red-50',
         accent: 'text-red-500'
@@ -172,7 +172,7 @@ export default function Login() {
         bg: 'bg-orange-500/10', 
         border: 'border-orange-500/20', 
         text: 'text-orange-400 shadow-sm shadow-orange-500/10', 
-        label: 'Council Workspace Clearance', 
+        label: 'Monitor Account', 
         focus: 'focus:border-orange-500 focus:ring-orange-500/10', 
         button: 'bg-orange-600 hover:bg-orange-500 shadow-xl shadow-orange-950/40 text-orange-50',
         accent: 'text-orange-500'
@@ -181,7 +181,7 @@ export default function Login() {
         bg: 'bg-blue-500/10', 
         border: 'border-blue-500/20', 
         text: 'text-blue-400 shadow-sm shadow-blue-500/10', 
-        label: 'Standard User Access', 
+        label: 'Standard Account', 
         focus: 'focus:border-blue-500 focus:ring-blue-500/10', 
         button: 'bg-blue-600 hover:bg-blue-500 shadow-xl shadow-blue-950/40 text-blue-50',
         accent: 'text-blue-500'
@@ -209,7 +209,7 @@ export default function Login() {
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full animate-pulse ${mode === 'admin' ? 'bg-red-500' : mode === 'monitor' ? 'bg-orange-500' : 'bg-blue-500'}`} />
             <div className={`text-[10px] font-black uppercase tracking-[0.2em] font-mono ${style.text}`}>
-              {style.label} {isLogin ? 'SECURED' : 'REGISTRATION'}
+              {style.label} {isLogin ? 'LOGIN' : 'SIGNUP'}
             </div>
           </div>
           <div className="text-[9px] font-mono text-neutral-500 tracking-wider">
@@ -223,7 +223,7 @@ export default function Login() {
               DebtFlow
             </h1>
             <p className="text-neutral-500 text-[11px] font-mono uppercase tracking-[0.15em] mt-1.5">
-              {isLogin ? 'SYSTEM INITIALIZATION & ACCESS AUTHORIZATION' : 'ESTABLISH NEW DEBTFLOW PROTOCOL IDENTITY'}
+              {isLogin ? 'SIGN IN TO DEBFLOW' : 'CREATE DEBFLOW PROFILE'}
             </p>
           </div>
 
@@ -238,9 +238,9 @@ export default function Login() {
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-lg shadow-emerald-500/10">
                   <Check size={32} className="animate-bounce" />
                 </div>
-                <h3 className="text-lg font-black font-sans text-emerald-400 uppercase tracking-widest text-center">Protocol Logged</h3>
+                <h3 className="text-lg font-black font-sans text-emerald-400 uppercase tracking-widest text-center">Request Received</h3>
                 <p className="text-neutral-200 text-xs max-w-sm font-mono leading-relaxed px-4 text-center">
-                  Request sent for admin validation.
+                  Your signup request has been sent for admin review.
                 </p>
                 <div className="w-24 h-1.5 bg-neutral-950 rounded-full overflow-hidden">
                   <motion.div 
@@ -257,7 +257,7 @@ export default function Login() {
                 {/* Protocol Clearance Tabs */}
                 <div>
                   <span className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2 font-mono">
-                    Select Clearance Mode
+                    Select Account Type
                   </span>
                   <div className="grid grid-cols-3 gap-2">
                     <button
@@ -266,7 +266,7 @@ export default function Login() {
                       className={`py-2 px-1 text-[9px] font-black uppercase tracking-wider rounded-lg border transition-all font-mono flex flex-col items-center gap-1.5 ${mode === 'user' ? 'bg-blue-500/10 border-blue-500/40 text-blue-400 shadow-md shadow-blue-500/5' : 'bg-neutral-950/50 border-neutral-800 text-neutral-500 hover:border-neutral-700 hover:text-neutral-400'}`}
                     >
                       <UserIcon size={12} />
-                      Standard
+                      Standard User
                     </button>
                     <button
                       type="button"
@@ -274,7 +274,7 @@ export default function Login() {
                       className={`py-2 px-1 text-[9px] font-black uppercase tracking-wider rounded-lg border transition-all font-mono flex flex-col items-center gap-1.5 ${mode === 'monitor' ? 'bg-orange-500/10 border-orange-500/40 text-orange-400 shadow-md shadow-orange-500/5' : 'bg-neutral-950/50 border-neutral-800 text-neutral-500 hover:border-neutral-700 hover:text-neutral-400'}`}
                     >
                       <Activity size={12} />
-                      Council Workspace
+                      Monitor
                     </button>
                     <button
                       type="button"
@@ -282,7 +282,7 @@ export default function Login() {
                       className={`py-2 px-1 text-[9px] font-black uppercase tracking-wider rounded-lg border transition-all font-mono flex flex-col items-center gap-1.5 ${mode === 'admin' ? 'bg-red-500/10 border-red-500/40 text-red-400 shadow-md shadow-red-500/5' : 'bg-neutral-950/50 border-neutral-800 text-neutral-500 hover:border-neutral-700 hover:text-neutral-400'}`}
                     >
                       <Shield size={12} />
-                      Admin Terminal
+                      Admin
                     </button>
                   </div>
                 </div>
@@ -290,7 +290,7 @@ export default function Login() {
                 {/* Username Input Field */}
                 <div>
                   <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2 font-mono">
-                    Ledger Username
+                    Username
                   </label>
                   <div className="relative flex items-center">
                     <input
@@ -327,7 +327,7 @@ export default function Login() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest font-mono">
-                      Security Password
+                      Password
                     </label>
                     {!isLogin && password && (
                       <span className={`text-[9px] font-black uppercase tracking-wider font-mono ${strength.text}`}>
@@ -365,7 +365,7 @@ export default function Login() {
                         />
                       </div>
                       <p className="text-[8px] text-neutral-500 mt-1 font-mono tracking-wide leading-relaxed">
-                        Secure protocols recommend min 6 characters combining uppercase, numbers, and symbols.
+                        Passwords must be at least 6 characters.
                       </p>
                     </div>
                   )}
@@ -396,7 +396,7 @@ export default function Login() {
                       className="overflow-hidden"
                     >
                       <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2 font-mono">
-                        Conform Password
+                        Confirm Password
                       </label>
                       <div className="relative">
                         <input
@@ -433,13 +433,13 @@ export default function Login() {
                       <Check size={10} className="stroke-[3]" />
                     </div>
                     <span className="text-[10px] font-black text-neutral-500 hover:text-neutral-400 font-mono uppercase tracking-widest transition-colors">
-                      Remember Session
+                      Remember Me
                     </span>
                   </label>
                   
                   {isLogin && (
-                    <span className="text-[9px] font-mono text-neutral-500 italic">
-                      Security Level: Class IV
+                    <span className="text-[9px] font-mono text-neutral-500">
+                      SSL Connection Secured
                     </span>
                   )}
                 </div>
@@ -457,7 +457,7 @@ export default function Login() {
                         <AlertTriangle size={14} className="flex-shrink-0 text-red-500 mt-0.5" />
                         <div>
                           <span className="font-black uppercase tracking-wider block mb-1 font-bold">
-                            {isLogin ? "Authorization Refused" : "Registration Refused"}
+                            {isLogin ? "Login Refused" : "Registration Failed"}
                           </span>
                           {authError}
                         </div>
@@ -483,8 +483,8 @@ export default function Login() {
                     <UserPlus size={15} />
                   )}
                   {loading 
-                    ? (isLogin ? 'TRANSMITTING CODES...' : 'ENCODING DECK PROFILE...') 
-                    : (isLogin ? `Authorize Connection` : 'Generate Protocol Profile')}
+                    ? (isLogin ? 'LOGGING IN...' : 'CREATING PROFILE...') 
+                    : (isLogin ? `Log In` : 'Sign Up')}
                 </button>
               </form>
             )}
@@ -497,7 +497,7 @@ export default function Login() {
               disabled={loading}
               className="text-neutral-500 hover:text-neutral-300 text-[10px] font-black uppercase tracking-widest font-mono transition-all hover:tracking-wider duration-300 disabled:opacity-50"
             >
-              {isLogin ? "Generate Account" : "Access Authorized Deck"}
+              {isLogin ? "Create an Account" : "Back to Login"}
             </button>
             {mode !== 'user' && (
               <button 
@@ -505,7 +505,7 @@ export default function Login() {
                 disabled={loading}
                 className="text-neutral-500 hover:text-white text-[10px] font-mono tracking-tighter transition-colors select-none"
               >
-                Exit Secure Mode
+                Exit Specialized Mode
               </button>
             )}
           </div>

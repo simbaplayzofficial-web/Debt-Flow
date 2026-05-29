@@ -50,7 +50,7 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
     } catch (err: any) {
       console.error(err);
       setStatus('error');
-      setErrorMessage(err?.message || 'Uplink transmission failure.');
+      setErrorMessage(err?.message || 'Submission failed.');
     }
   };
 
@@ -78,10 +78,10 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
           </div>
           <div>
             <h4 className="font-mono text-[10px] text-amber-500 font-bold uppercase tracking-widest">
-              Classified Submission Portal
+              Anonymous Complaint Box
             </h4>
             <h3 className="text-lg font-black text-white uppercase tracking-tight font-sans">
-              BLACK BOX CHANNELS
+              BLACK BOX SUBMISSION
             </h3>
           </div>
         </div>
@@ -89,7 +89,7 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
         <div className="flex items-center gap-2 bg-neutral-900/80 border border-neutral-800 px-3 py-1.5 rounded-full">
           <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping" />
           <span className="font-mono text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
-            SECURE LINK STABLE
+            SECURE SUBMISSION STABLE
           </span>
         </div>
       </div>
@@ -98,7 +98,7 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
       <div className="bg-neutral-950/80 border border-neutral-800 p-4 rounded-2xl mb-6 flex items-start gap-3">
         <EyeOff className="text-neutral-500 mt-0.5 shrink-0" size={16} />
         <p className="text-xs text-neutral-400 leading-relaxed font-sans">
-          <strong className="text-neutral-200">Zero Identity Logging Protocol:</strong> Your username, user ID, IP address, and system metadata are strictly stripped of all outbound package payloads before reaching firestore registries. 
+          <strong className="text-neutral-200">Completely Anonymous:</strong> Your username, user ID, and system metadata are strictly stripped from the submission. Monitors will only see the category and message you write. 
         </p>
       </div>
 
@@ -112,10 +112,10 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
             <CheckCircle size={40} />
           </div>
           <h4 className="text-base font-black text-emerald-200 uppercase tracking-tight">
-            Anonymous report transmitted securely.
+            Anonymous Report Submitted Successfully
           </h4>
           <p className="text-xs text-neutral-400 max-w-md font-sans">
-            Your anonymous complaint packet has been encrypted and recorded dynamically. Staff monitors can view the concern in their secure desk dashboard.
+            Your anonymous complaint has been recorded. Monitors can view and reply to it in their control workspace.
           </p>
           <button 
             onClick={() => setStatus('idle')}
@@ -130,7 +130,7 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
           {/* Category Dropdown */}
           <div className="space-y-2">
             <label className="block text-[10px] font-mono text-neutral-400 uppercase tracking-wider font-bold">
-              Select Classification Category
+              Select Category
             </label>
             <div className="relative">
               <select
@@ -155,7 +155,7 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <label className="block text-[10px] font-mono text-neutral-400 uppercase tracking-wider font-bold">
-                Detailed Complaint Dossier
+                Complaint Details
               </label>
               <span className="font-mono text-[9px] text-neutral-600">
                 MAX 2000 CHARACTERS
@@ -185,7 +185,7 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t border-neutral-900">
             <div className="flex items-center gap-2 text-[10px] text-neutral-500 font-mono">
               <Terminal size={12} className="text-amber-500/50" />
-              <span>UPLINK ORIGIN: CLASSIFIED_GUEST</span>
+              <span>SENDER: ANONYMOUS USER</span>
             </div>
 
             <button
@@ -201,12 +201,12 @@ export const BlackBox: React.FC<BlackBoxProps> = ({ source }) => {
               {status === 'sending' ? (
                 <>
                   <Loader2 className="animate-spin text-neutral-400" size={14} />
-                  Transmitting...
+                  Submitting...
                 </>
               ) : (
                 <>
                   <Send size={14} />
-                  Submit Packet
+                  Submit Report
                 </>
               )}
             </button>

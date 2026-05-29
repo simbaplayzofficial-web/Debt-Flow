@@ -212,7 +212,7 @@ export default function App() {
           {(currentUser.role === 'admin' || currentUser.role === 'monitor') && (
             <SidebarItem 
               icon={ShieldCheck} 
-              label="Council Workspace" 
+              label="Monitor Workspace" 
               active={activeTab === 'monitor'} 
               onClick={() => { setActiveTab('monitor'); setIsSidebarOpen(false); }} 
               className="bg-blue-500/5 text-blue-400 border-blue-500/10 hover:bg-blue-500/10"

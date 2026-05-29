@@ -71,9 +71,9 @@ export default function Groups() {
         {[
           { id: 'studying', label: 'Studying Together', icon: BookOpen },
           { id: 'chatting', label: 'Chatting Together', icon: MessageCircle },
-          { id: 'monitoring', label: 'Council Workspace', icon: Shield },
+          { id: 'monitoring', label: 'Monitor Workspace', icon: Shield },
           { id: 'blackbox', label: 'Black Box', icon: Lock },
-          { id: 'chattering', label: 'Chattering', icon: MessageSquare },
+          { id: 'chattering', label: 'Direct Chat', icon: MessageSquare },
         ].map(g => (
           <button
             key={g.id}
@@ -109,9 +109,9 @@ export default function Groups() {
                 <div>
                    <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 italic">
                      <Shield size={16} className="text-blue-500" />
-                     Council Workspace
+                     Monitor Workspace
                    </h3>
-                   <p className="text-[10px] text-neutral-500 font-bold uppercase mt-1">Legislative & Policy Discussion</p>
+                   <p className="text-[10px] text-neutral-500 font-bold uppercase mt-1">Community Discussion & Policy</p>
                 </div>
                 <div className="flex items-center gap-2">
                    <Info size={14} className="text-neutral-600" />
@@ -207,7 +207,7 @@ export default function Groups() {
                                         await resolveBill(selectedBill.id, verdictInput);
                                         setIsResolvingBill(false);
                                         setVerdictInput('');
-                                        alert("BILL RESOLVED: Verdict archived in Council Workspace.");
+                                        alert("Success: Bill has been resolved.");
                                       }}
                                       className="flex-1 py-2 bg-green-600 hover:bg-green-500 text-white text-[10px] font-black uppercase rounded-lg transition-all"
                                     >
@@ -414,7 +414,7 @@ export default function Groups() {
                    >
                       <div className="absolute top-0 right-0 w-12 h-12 bg-orange-500/10 -mr-6 -mt-6 rotate-45" />
                       <p className="text-xs text-orange-200 leading-relaxed italic truncate">{c.description}</p>
-                      <p className="text-[10px] text-neutral-500 mt-2 font-black uppercase tracking-widest leading-relaxed">Refer specifically to Council Workspace for details.</p>
+                      <p className="text-[10px] text-neutral-500 mt-2 font-black uppercase tracking-widest leading-relaxed">Refer specifically to Monitor Workspace for details.</p>
                    </div>
                 ))}
                 {resolvingDeck.filter(c => c.status === 'under_investigation').length === 0 && (
@@ -427,10 +427,10 @@ export default function Groups() {
            <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-[0_0_20px_rgba(245,158,11,0.02)]">
               <div className="p-5 border-b border-neutral-800 bg-amber-600/5 flex items-center gap-2">
                  <Lock size={16} className="text-amber-500 animate-pulse" />
-                 <h3 className="text-xs font-black uppercase tracking-widest italic text-amber-500">Black Box Secured Link</h3>
+                 <h3 className="text-xs font-black uppercase tracking-widest italic text-amber-500">Black Box</h3>
               </div>
               <div className="p-5">
-                 <p className="text-[10px] text-neutral-400 mb-4 leading-relaxed">Direct encrypted anonymous submission uplink to system monitors without identity packet tags.</p>
+                 <p className="text-[10px] text-neutral-400 mb-4 leading-relaxed">Submit anonymous complaints directly to system monitors.</p>
                  <button 
                    onClick={() => setActiveGroup('blackbox')}
                    className="w-full bg-amber-600 hover:bg-amber-500 text-white font-mono text-[10px] uppercase font-bold tracking-widest py-3 rounded-xl transition-all shadow-md shadow-amber-600/10 cursor-pointer text-center flex items-center justify-center gap-2"
@@ -467,7 +467,7 @@ export default function Groups() {
                 <div className="p-8 border border-dashed border-neutral-800 rounded-3xl flex flex-col items-center justify-center text-center bg-neutral-950/20">
                    <Shield size={32} className="text-neutral-800 mb-4 opacity-40" />
                    <p className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] italic">Administrative Directive</p>
-                   <p className="text-[10px] italic mt-2 text-neutral-600 max-w-[300px]">Strategic bill filing and technical validations are strictly managed via the Council Workspace.</p>
+                   <p className="text-[10px] italic mt-2 text-neutral-600 max-w-[300px]">Bill filings and user validations are managed via the Monitor Workspace.</p>
                 </div>
              </div>
           </div>

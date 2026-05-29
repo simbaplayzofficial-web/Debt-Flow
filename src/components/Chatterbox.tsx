@@ -125,7 +125,7 @@ export default function Chatterbox() {
   };
 
   const clearHistory = async () => {
-    if (!currentUser || !confirm("Erase all transmission records? This is permanent.")) return;
+    if (!currentUser || !confirm("Erase all chat history? This is permanent.")) return;
     try {
       const q = query(
         collection(db, 'chatHistory'),
@@ -310,7 +310,7 @@ export default function Chatterbox() {
             value={input}
             onChange={e => setInput(e.target.value)}
             disabled={isLoading}
-            placeholder="Search database or ask terminal..."
+            placeholder="Ask a question or type a message..."
             className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl pl-5 pr-14 py-3.5 text-xs text-neutral-200 placeholder:text-neutral-700 hover:border-neutral-700 focus:border-amber-500/50 outline-none transition-all font-mono shadow-inner"
             id="chatterbox-user-text-input"
           />

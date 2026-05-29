@@ -89,7 +89,7 @@ export type UserProfile = {
   communityServicesNeeded: number;
   isCommunityServiceParticipant?: boolean;
   specialOpsAccess?: boolean;
-  hasCompletedTutorial: boolean;
+  hasCompletedTutorial?: boolean;
   createdAt?: any;
   lastLogin?: any;
 };
@@ -131,13 +131,53 @@ export type Transaction = {
   id: string;
   senderId: string;
   askerId: string;
+  requesterUid?: string;
+  senderUid?: string;
+  type?: string;
+  amount?: number;
   pages: number;
   debt: number;
-  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'active' | 'awaiting_rating';
   isCommunityService: boolean;
   rating?: number;
   validatedBy?: string; // monitor username
   validatedAt?: string; // ISO timestamp
+  createdAt: any;
+  approvedBy?: string;
+  active?: boolean;
+  completed?: boolean;
+  repaymentStatus?: string;
+  reason?: string;
+  deadline?: string;
+};
+
+export type TransactionRequest = {
+  id: string;
+  requesterUid: string;
+  askerId?: string;
+  senderUid: string;
+  senderId?: string;
+  type?: string; // debt request, work request, repayment, lending, operational tasks
+  amount?: number;
+  pages?: number;
+  debt?: number;
+  reason?: string;
+  deadline?: string;
+  isCommunityService?: boolean;
+  status: 'pending' | 'approved' | 'rejected' | 'active' | 'completed' | 'archived';
+  createdAt: any;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  verdict?: string;
+};
+
+export type TransactionRating = {
+  id: string;
+  transactionId: string;
+  ratedUserUid: string;
+  ratedByUid: string;
+  stars: number;
+  review: string;
   createdAt: any;
 };
 
@@ -425,6 +465,7 @@ type State = {
   roleRequests: RoleRequest[];
   resolvingDeck: ResolvingCase[];
   pendingAccountRequests: PendingAccountRequest[];
+  anonymousComplaints: any[];
   systemStatus: SystemStatus | null;
   activityLogs: ActivityLog[];
   debtAdjustments: DebtAdjustment[];
@@ -450,6 +491,8 @@ type State = {
   billComments: BillComment[];
   billStaffComments: BillStaffComment[];
   warningRules: WarningRule[];
+  transactionRequests: TransactionRequest[];
+  transactionRatings: TransactionRating[];
   
   isTutorialRunning: boolean;
   
@@ -467,6 +510,11 @@ type State = {
   rejectTransaction: (txId: string) => Promise<void>;
   submitRating: (txId: string, rating: number) => Promise<void>;
   forgiveDebt: (borrowerId: string, amount: number) => Promise<void>;
+  createTransactionRequest: (requesterUid: string, senderUid: string, type: string, amount: number, reason: string, deadline?: string) => Promise<string>;
+  approveTransactionRequest: (requestId: string, verdict: string) => Promise<void>;
+  rejectTransactionRequest: (requestId: string, verdict: string) => Promise<void>;
+  completeTransactionWork: (transactionId: string) => Promise<void>;
+  submitTransactionRating: (transactionId: string, stars: number, review: string) => Promise<void>;
   calculateNetLedger: (userId: string) => {
     incomingOwed: number;
     outgoingOwed: number;
@@ -525,6 +573,9 @@ type State = {
   claimComplaint: (complaintId: string) => Promise<void>;
   resolveComplaint: (complaintId: string) => Promise<void>;
   sendComplaintMessage: (complaintId: string, message: string) => Promise<void>;
+  updateComplaintStatus: (complaintId: string, status: string) => Promise<void>;
+  updateComplaintNotes: (complaintId: string, notes: string) => Promise<void>;
+  deleteComplaint: (complaintId: string) => Promise<void>;
   
   // Role Transition
   requestRole: (role: UserRole) => Promise<void>;
@@ -555,6 +606,7 @@ export const useStore = create<State>()((set, get) => ({
   transactions: [],
   announcements: [],
   complaints: [],
+  complaintMessages: [],
   roleRequests: [],
   resolvingDeck: [],
   anonymousComplaints: [],
@@ -582,6 +634,8 @@ export const useStore = create<State>()((set, get) => ({
   bills: [],
   billComments: [],
   billStaffComments: [],
+  transactionRequests: [],
+  transactionRatings: [],
   warningRules: [
     { level: 1, penalty: 'Official warning registered', integrityDeduction: 5 },
     { level: 2, penalty: 'Mandatory community service', integrityDeduction: 15 },
@@ -665,7 +719,7 @@ export const useStore = create<State>()((set, get) => ({
     // Determine dynamic human-readable description
     let description = '';
     if (hasSpecialKeywords) {
-      description = 'Accessed classified subsystem';
+      description = 'Accessed system configuration';
     } else if (typeof details === 'string') {
       description = details;
     } else if (details && typeof details === 'object') {
@@ -716,22 +770,22 @@ export const useStore = create<State>()((set, get) => ({
             description = `Suspended platform access for @${details.username || 'user'}`;
             break;
           case 'USER_ACTIVATED':
-            description = `Restored database clearance for @${details.username || 'user'}`;
+            description = `Restored account access for @${details.username || 'user'}`;
             break;
           case 'ROLE_REQUEST':
-            description = `Submitted application for higher clearance`;
+            description = `Submitted application for role update`;
             break;
           case 'ROLE_RESOLVED':
             description = `${details.approved ? 'Approved' : 'Rejected'} ${details.target || 'user'}'s promotion request`;
             break;
           case 'VOTE_CREATED':
-            description = `Initiated community decision matrix: "${details.title || 'Untitled'}"`;
+            description = `Initiated community vote: "${details.title || 'Untitled'}"`;
             break;
           case 'VOTE_SUBMITTED':
-            description = `Logged vote selection on initiative #${details.voteId ? details.voteId.substring(0,8) : ''}`;
+            description = `Cast vote on initiative #${details.voteId ? details.voteId.substring(0,8) : ''}`;
             break;
           case 'GROUP_POST':
-            description = `Submitted publication to ${details.groupId || 'community'}`;
+            description = `Posted a message to ${details.groupId || 'community'}`;
             break;
           case 'BILL_FILED':
             description = `Filed claim: "${details.title || 'Untitled'}"`;
@@ -982,7 +1036,8 @@ export const useStore = create<State>()((set, get) => ({
     const asker = users.find(u => u.id === askerId);
     if (!asker) throw new Error("USER_NOT_FOUND");
     
-    const debt = calculateDebt(pages);
+    const pagesNum = Number(pages) || 0;
+    const debt = isCommunityService ? 0 : calculateDebt(pagesNum);
 
     if (!isCommunityService) {
       const askerLedger = calculateNetLedger(askerId);
@@ -1001,21 +1056,25 @@ export const useStore = create<State>()((set, get) => ({
     }
     
     try {
-      const transactionData = {
+      const requestData = {
+        requesterUid: askerId,
+        askerId: askerId,
+        senderUid: currentUser.id,
         senderId: currentUser.id,
-        askerId,
-        pages,
+        pages: pagesNum,
         debt,
+        amount: debt,
         status: 'pending',
         isCommunityService,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        timestamp: serverTimestamp()
       };
       
-      const docRef = await addDoc(collection(db, 'transactions'), transactionData);
-      await logActivity('CREATE_TRANSACTION', { transactionId: docRef.id, pages, debt, asker: asker.username }, undefined, undefined, 'Profile');
+      const docRef = await addDoc(collection(db, 'transactionRequests'), requestData);
+      await logActivity('CREATE_TRANSACTION_REQUEST', { requestId: docRef.id, pages: pagesNum, debt, asker: asker.username }, undefined, undefined, 'Profile');
       return docRef.id;
     } catch (error: any) {
-      console.error("TRANSACTION_FAILED:", error);
+      handleFirestoreError(error, OperationType.CREATE, 'transactionRequests');
       throw error;
     }
   },
@@ -1154,6 +1213,273 @@ export const useStore = create<State>()((set, get) => ({
     await batch.commit();
     await recalculateLeaderboard();
     await logActivity('RATE_TRANSACTION', { txId, rating }, undefined, undefined, 'Transaction Center');
+  },
+
+  createTransactionRequest: async (requesterUid, senderUid, type, amount, reason, deadline) => {
+    const { currentUser, logActivity, calculateNetLedger } = get();
+    if (!currentUser) throw new Error("UNAUTHENTICATED");
+
+    const ledger = calculateNetLedger(requesterUid);
+    const projected = ledger.netLedger - amount;
+    if (projected < -10) {
+      throw new Error(`Debt limit reached. Requester would go below -10 on Net Ledger (Projected: ${projected}).`);
+    }
+
+    try {
+      const requestData = {
+        requesterUid,
+        senderUid,
+        type,
+        amount,
+        reason,
+        deadline: deadline || "",
+        status: 'pending',
+        createdAt: serverTimestamp()
+      };
+      const docRef = await addDoc(collection(db, 'transactionRequests'), requestData);
+      await logActivity('CREATE_TRANSACTION_REQUEST', {
+        requestId: docRef.id,
+        requesterUid,
+        senderUid,
+        type,
+        amount,
+        reason
+      }, currentUser.id, currentUser.username, 'Profile');
+      return docRef.id;
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.CREATE, 'transactionRequests');
+      throw error;
+    }
+  },
+
+  approveTransactionRequest: async (requestId, verdict) => {
+    const { currentUser, logActivity, users, transactionRequests, calculateNetLedger } = get();
+    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) {
+      throw new Error("UNAUTHORIZED");
+    }
+
+    const req = transactionRequests.find(r => r.id === requestId);
+    if (!req) throw new Error("Request not found");
+    if (req.status !== 'pending') throw new Error("Request is not pending validation");
+
+    const isCommunityService = req.isCommunityService || req.type === 'operational tasks' || false;
+    const reqAmount = isCommunityService ? 0 : (req.debt ?? req.amount ?? 0);
+    const pagesVal = req.pages ?? 0;
+
+    const requesterUid = req.requesterUid || req.askerId;
+    const senderUid = req.senderUid || req.senderId;
+
+    if (!isCommunityService && requesterUid) {
+      const ledger = calculateNetLedger(requesterUid);
+      const projected = ledger.netLedger - reqAmount;
+      if (projected < -10) {
+        throw new Error(`Debt limit reached. Borrower would go below -10 on Net Ledger (Projected: ${projected}).`);
+      }
+    }
+
+    try {
+      const batch = writeBatch(db);
+
+      const reqRef = doc(db, 'transactionRequests', requestId);
+      batch.update(reqRef, {
+        status: 'approved',
+        reviewedBy: currentUser.username,
+        reviewedAt: new Date().toISOString(),
+        verdict: verdict || "Approved by Council"
+      });
+
+      const txId = uuidv4();
+      const txRef = doc(db, 'transactions', txId);
+      
+      const txData = {
+        id: txId,
+        senderId: senderUid,
+        askerId: requesterUid,
+        senderUid: senderUid,
+        requesterUid: requesterUid,
+        pages: pagesVal,
+        debt: reqAmount,
+        amount: reqAmount,
+        type: req.type || (isCommunityService ? 'operational tasks' : 'work request'),
+        status: 'active',
+        isCommunityService,
+        createdAt: serverTimestamp(),
+        timestamp: serverTimestamp(),
+        approvedBy: currentUser.username,
+        active: true,
+        completed: false,
+        repaymentStatus: 'pending',
+        requestId: req.id,
+        reason: req.reason || `Transaction of ${pagesVal} pages`,
+        deadline: req.deadline || ""
+      };
+      batch.set(txRef, txData);
+
+      if (senderUid && requesterUid) {
+        const u1 = senderUid < requesterUid ? senderUid : requesterUid;
+        const u2 = senderUid < requesterUid ? requesterUid : senderUid;
+        const debtId = `${u1}_${u2}`;
+        const debtRef = doc(db, 'debts', debtId);
+        
+        const currentDebtDoc = get().debts.find(d => d.id === debtId);
+        const currentBalance = currentDebtDoc ? currentDebtDoc.netBalance : 0;
+        const balanceChange = senderUid === u1 ? reqAmount : -reqAmount;
+        const newBalance = currentBalance + balanceChange;
+
+        batch.set(debtRef, {
+          id: debtId,
+          user1Id: u1,
+          user2Id: u2,
+          netBalance: newBalance,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        const senderUser = users.find(u => u.id === senderUid);
+        const requesterUser = users.find(u => u.id === requesterUid);
+        if (senderUser) {
+          batch.update(doc(db, 'users', senderUser.id), {
+            debtToMe: (senderUser.debtToMe || 0) + reqAmount
+          });
+        }
+        if (requesterUser) {
+          batch.update(doc(db, 'users', requesterUser.id), {
+            debtOwed: (requesterUser.debtOwed || 0) + reqAmount
+          });
+        }
+      }
+
+      await batch.commit();
+
+      const { recalculateLeaderboard } = get();
+      await recalculateLeaderboard();
+
+      await logActivity('APPROVE_TRANSACTION_REQUEST', {
+        requestId,
+        txId,
+        amount: reqAmount,
+        verdict
+      }, currentUser.id, currentUser.username, 'Monitor Workspace');
+
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.WRITE, `transactionRequests/${requestId}`);
+      throw error;
+    }
+  },
+
+  rejectTransactionRequest: async (requestId, verdict) => {
+    const { currentUser, logActivity, transactionRequests } = get();
+    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) {
+      throw new Error("UNAUTHORIZED");
+    }
+
+    const req = transactionRequests.find(r => r.id === requestId);
+    if (!req) throw new Error("Request not found");
+    if (req.status !== 'pending') throw new Error("Request is not pending validation");
+
+    try {
+      await updateDoc(doc(db, 'transactionRequests', requestId), {
+        status: 'rejected',
+        reviewedBy: currentUser.username,
+        reviewedAt: new Date().toISOString(),
+        verdict: verdict || "Rejected by Council"
+      });
+
+      await logActivity('REJECT_TRANSACTION_REQUEST', {
+        requestId,
+        verdict
+      }, currentUser.id, currentUser.username, 'Monitor Workspace');
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.UPDATE, `transactionRequests/${requestId}`);
+      throw error;
+    }
+  },
+
+  completeTransactionWork: async (transactionId) => {
+    const { currentUser, logActivity, transactions } = get();
+    if (!currentUser) throw new Error("UNAUTHENTICATED");
+
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx) throw new Error("Transaction not found");
+    if (tx.senderId !== currentUser.id && tx.senderUid !== currentUser.id) {
+      throw new Error("Only the transaction sender can mark work as completed");
+    }
+
+    if (tx.status !== 'active' && tx.status !== 'approved') {
+      throw new Error("Transaction is not active");
+    }
+
+    try {
+      await updateDoc(doc(db, 'transactions', transactionId), {
+        status: 'awaiting_rating'
+      });
+
+      await logActivity('COMPLETE_TRANSACTION_WORK', {
+        transactionId
+      }, currentUser.id, currentUser.username, 'Profile');
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.UPDATE, `transactions/${transactionId}`);
+      throw error;
+    }
+  },
+
+  submitTransactionRating: async (transactionId, stars, review) => {
+    const { currentUser, logActivity, transactions, users } = get();
+    if (!currentUser) throw new Error("UNAUTHENTICATED");
+
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx) throw new Error("Transaction not found");
+
+    if (tx.askerId !== currentUser.id && tx.requesterUid !== currentUser.id) {
+      throw new Error("Only the requester can rate this transaction");
+    }
+
+    const senderUid = tx.senderUid || tx.senderId;
+
+    try {
+      const batch = writeBatch(db);
+
+      const ratingId = uuidv4();
+      const ratingRef = doc(db, 'transactionRatings', ratingId);
+      batch.set(ratingRef, {
+        id: ratingId,
+        transactionId,
+        ratedUserUid: senderUid,
+        ratedByUid: currentUser.id,
+        stars,
+        review,
+        createdAt: serverTimestamp()
+      });
+
+      batch.update(doc(db, 'transactions', transactionId), {
+        status: 'completed',
+        rating: stars
+      });
+
+      const ratingsForSender = get().transactionRatings.filter(r => r.ratedUserUid === senderUid);
+      const newCount = ratingsForSender.length + 1;
+      const totalStars = ratingsForSender.reduce((acc, r) => acc + r.stars, 0) + stars;
+      const averageValue = totalStars / newCount;
+
+      batch.update(doc(db, 'users', senderUid), {
+        ratingAverage: averageValue,
+        ratingCount: newCount
+      });
+
+      await batch.commit();
+
+      const { recalculateLeaderboard } = get();
+      await recalculateLeaderboard();
+
+      await logActivity('RATE_TRANSACTION_WORK', {
+        transactionId,
+        stars,
+        review
+      }, currentUser.id, currentUser.username, 'Profile');
+
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.WRITE, `transactions/${transactionId}/rating`);
+      throw error;
+    }
   },
 
   forgiveDebt: async (borrowerId, amount) => {
@@ -1466,22 +1792,55 @@ export const useStore = create<State>()((set, get) => ({
     try {
       const { transactions, forgivenessLogs, users } = get();
       
-      const approvedTx = transactions.filter(t => t.status === 'approved' || t.status === 'completed');
+      const approvedTx = transactions.filter(t => t.status === 'approved' || t.status === 'completed' || t.status === 'active' || t.status === 'awaiting_rating');
       const approvedCS = approvedTx.filter(t => t.isCommunityService);
       
       // Community Carer
       const carerMap: Record<string, number> = {};
       approvedCS.forEach(t => {
-        carerMap[t.senderId] = (carerMap[t.senderId] || 0) + t.debt;
+        const sender = t.senderUid || t.senderId;
+        const amt = t.amount || t.debt || 0;
+        if (sender) carerMap[sender] = (carerMap[sender] || 0) + amt;
       });
       forgivenessLogs.forEach(f => {
         carerMap[f.forgiverId] = (carerMap[f.forgiverId] || 0) + f.debtsForgiven;
       });
       
-      // Sender of the Month (Total Approved Debts Sent)
-      const monthlyMap: Record<string, number> = {};
-      approvedTx.forEach(t => {
-        monthlyMap[t.senderId] = (monthlyMap[t.senderId] || 0) + t.debt;
+      // Compute weighted reputation score for all users
+      const userScores = users.map(u => {
+        const userCompletedTx = transactions.filter(t => (t.senderId === u.id || t.senderUid === u.id) && t.status === 'completed');
+        const userActiveTx = transactions.filter(t => (t.senderId === u.id || t.senderUid === u.id) && t.status === 'active');
+        const userAwaitingRatingTx = transactions.filter(t => (t.senderId === u.id || t.senderUid === u.id) && t.status === 'awaiting_rating');
+        
+        const completedCount = userCompletedTx.length;
+        const totalCount = completedCount + userActiveTx.length + userAwaitingRatingTx.length;
+        
+        const avgRating = u.ratingAverage || 0;
+        const completionRate = totalCount > 0 ? (completedCount / totalCount) : 1;
+        const reliability = completionRate * 5; // styled out of 5
+        const warningCount = u.warningCount ?? u.warnings ?? 0;
+        const warningPenalties = warningCount * 1.0;
+        
+        const score = avgRating + completedCount - warningPenalties;
+        
+        return {
+          id: u.id,
+          username: u.username,
+          score,
+          avgRating,
+          completedCount,
+          reliability
+        };
+      });
+
+      // Find top sender according to Sender Score
+      let topSenderId: string | null = null;
+      let maxSenderScore = -999;
+      userScores.forEach(us => {
+        if (us.score > maxSenderScore) {
+          maxSenderScore = us.score;
+          topSenderId = us.id;
+        }
       });
 
       // Find tops
@@ -1491,15 +1850,6 @@ export const useStore = create<State>()((set, get) => ({
         if (val > maxCarer) {
           maxCarer = val;
           topCarerId = uid;
-        }
-      });
-
-      let topMonthlyId: string | null = null;
-      let maxMonthly = 0;
-      Object.entries(monthlyMap).forEach(([uid, val]) => {
-        if (val > maxMonthly) {
-          maxMonthly = val;
-          topMonthlyId = uid;
         }
       });
 
@@ -1513,6 +1863,8 @@ export const useStore = create<State>()((set, get) => ({
         }
       });
 
+      const topSenderUser = users.find(u => u.id === topSenderId);
+
       const lbDoc: Leaderboard = {
         communityCarer: topCarerId ? {
           userId: topCarerId,
@@ -1524,10 +1876,10 @@ export const useStore = create<State>()((set, get) => ({
           username: users.find(u => u.id === topRatingId)?.username || 'Unknown',
           averageRating: maxRating
         } : null,
-        senderOfTheMonth: topMonthlyId ? {
-          userId: topMonthlyId,
-          username: users.find(u => u.id === topMonthlyId)?.username || 'Unknown',
-          totalDebts: maxMonthly
+        senderOfTheMonth: topSenderId ? {
+          userId: topSenderId,
+          username: topSenderUser?.username || 'Unknown',
+          totalDebts: Number(maxSenderScore.toFixed(2))
         } : null,
         updatedAt: new Date().toISOString()
       };
@@ -2458,7 +2810,7 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   submitComplaint: async (subject, complaint) => {
-    const { currentUser } = get();
+    const { currentUser, logActivity } = get();
     if (!currentUser) throw new Error("UNAUTHORIZED");
     const docRef = await addDoc(collection(db, "complaints"), {
       subject,
@@ -2467,24 +2819,34 @@ export const useStore = create<State>()((set, get) => ({
       createdAt: serverTimestamp(),
       status: "pending",
       assignedMonitorId: null,
+      assignedMonitorName: null,
+      anonymousThreadId: null,
+      internalNotes: "",
       lastMessageAt: serverTimestamp()
     });
+    await logActivity('COMPLAINT_FILED', { subject, id: docRef.id }, undefined, undefined, 'Black Box');
     return docRef.id;
   },
 
   claimComplaint: async (complaintId) => {
-    const { currentUser } = get();
+    const { currentUser, logActivity } = get();
     if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
     await updateDoc(doc(db, "complaints", complaintId), {
       assignedMonitorId: currentUser.uid,
-      status: "under_review"
+      assignedMonitorName: `@${currentUser.username}`,
+      status: "under_review",
+      anonymousThreadId: complaintId,
+      lastMessageAt: serverTimestamp()
     });
+    await logActivity('CLAIM_COMPLAINT', { id: complaintId }, undefined, undefined, 'Complaints Workspace');
   },
 
   resolveComplaint: async (complaintId) => {
+    const { currentUser, logActivity } = get();
     await updateDoc(doc(db, "complaints", complaintId), {
       status: "resolved"
     });
+    await logActivity('RESOLVE_COMPLAINT', { id: complaintId }, undefined, undefined, 'Complaints Workspace');
   },
 
   sendComplaintMessage: async (complaintId, message) => {
@@ -2493,15 +2855,37 @@ export const useStore = create<State>()((set, get) => ({
     
     await addDoc(collection(db, "complaintMessages"), {
       complaintId,
-      senderRole: currentUser.role === 'monitor' || currentUser.role === 'admin' ? 'monitor' : 'user',
+      senderType: currentUser.role === 'monitor' || currentUser.role === 'admin' ? 'monitor' : 'complainant',
       senderUid: currentUser.uid,
       message,
+      timestamp: new Date().toISOString(),
       createdAt: serverTimestamp()
     });
     
     await updateDoc(doc(db, "complaints", complaintId), {
       lastMessageAt: serverTimestamp()
     });
+  },
+
+  updateComplaintStatus: async (complaintId, status) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
+    await updateDoc(doc(db, "complaints", complaintId), { status });
+    await logActivity('UPDATE_COMPLAINT_STATUS', { id: complaintId, status }, undefined, undefined, 'Complaints Workspace');
+  },
+
+  updateComplaintNotes: async (complaintId, notes) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
+    await updateDoc(doc(db, "complaints", complaintId), { internalNotes: notes });
+    await logActivity('UPDATE_COMPLAINT_NOTES', { id: complaintId }, undefined, undefined, 'Complaints Workspace');
+  },
+
+  deleteComplaint: async (complaintId) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
+    await deleteDoc(doc(db, "complaints", complaintId));
+    await logActivity('DELETE_COMPLAINT', { id: complaintId }, undefined, undefined, 'Complaints Workspace');
   },
 
   getOrCreateConversation: async (participantId) => {
@@ -2713,12 +3097,19 @@ onAuthStateChanged(auth, async (firebaseUser) => {
                     onSnapshot(collectionGroup(db, 'warnings'), (snapshot) => {
                       useStore.setState({ allWarnings: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Warning)) });
                     }, (err) => console.warn("Staff Listener - Global Warnings Access Denied:", err.message)),
-                    onSnapshot(query(collection(db, 'complaints'), orderBy('timestamp', 'desc')), (snapshot) => {
-                      useStore.setState({ complaints: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Complaint)) });
+                    onSnapshot(query(collection(db, 'complaints'), orderBy('createdAt', 'desc')), (snapshot) => {
+                      const list = snapshot.docs.map(d => {
+                        const data = d.data();
+                        return {
+                          id: d.id,
+                          ...data,
+                          category: data.subject || data.category || 'General',
+                          message: data.complaint || data.message || '',
+                          anonymousThreadId: data.assignedMonitorId ? d.id : null,
+                        };
+                      });
+                      useStore.setState({ complaints: list as any[], anonymousComplaints: list });
                     }, (err) => console.warn("Staff Listener - Complaints Access Denied:", err.message)),
-                    onSnapshot(query(collection(db, 'anonymousComplaints'), orderBy('createdAt', 'desc')), (snapshot) => {
-                      useStore.setState({ anonymousComplaints: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AnonymousComplaint)) });
-                    }, (err) => console.warn("Staff Listener - AnonymousComplaints Access Denied:", err.message)),
                     onSnapshot(query(collection(db, 'groups', 'monitoring', 'posts'), orderBy('timestamp', 'desc'), limit(50)), (snapshot) => {
                       const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GroupPost));
                       useStore.setState(state => ({ groupPosts: { ...state.groupPosts, monitoring: posts } }));
@@ -2739,9 +3130,19 @@ onAuthStateChanged(auth, async (firebaseUser) => {
                     onSnapshot(query(collection(db, 'rewards'), where('userId', '==', firebaseUser.uid)), (snapshot) => {
                        useStore.setState({ rewards: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Reward)) });
                     }, errorHandler('Rewards-Personal')),
-                    onSnapshot(query(collection(db, 'anonymousComplaints'), where('complainantUid', '==', firebaseUser.uid)), (snapshot) => {
-                      useStore.setState({ anonymousComplaints: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AnonymousComplaint)) });
-                    }, (err) => console.warn("User Listener - AnonymousComplaints Denied:", err.message))
+                    onSnapshot(query(collection(db, 'complaints'), where('createdByUid', '==', firebaseUser.uid), orderBy('createdAt', 'desc')), (snapshot) => {
+                      const list = snapshot.docs.map(d => {
+                        const data = d.data();
+                        return {
+                          id: d.id,
+                          ...data,
+                          category: data.subject || data.category || 'General',
+                          message: data.complaint || data.message || '',
+                          anonymousThreadId: data.assignedMonitorId ? d.id : null,
+                        };
+                      });
+                      useStore.setState({ anonymousComplaints: list, complaints: list as any[] });
+                    }, (err) => console.warn("User Listener - Complaints Access Denied:", err.message))
                   );
                 }
 
@@ -2857,7 +3258,13 @@ onAuthStateChanged(auth, async (firebaseUser) => {
               );
             }
           });
-        }, errorHandler('Votes'))
+        }, errorHandler('Votes')),
+        onSnapshot(collection(db, 'transactionRequests'), (snapshot) => {
+          useStore.setState({ transactionRequests: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as TransactionRequest)) });
+        }, errorHandler('TransactionRequests')),
+        onSnapshot(collection(db, 'transactionRatings'), (snapshot) => {
+          useStore.setState({ transactionRatings: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as TransactionRating)) });
+        }, errorHandler('TransactionRatings'))
       );
 
       // 4. Public Group Listeners
