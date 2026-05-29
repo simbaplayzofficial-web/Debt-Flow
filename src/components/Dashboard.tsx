@@ -11,7 +11,7 @@ export default function Dashboard() {
   const { 
     announcements, users, currentUser, rewards, currentLeaderboard,
     transactions, complaints, rolesConfig, debtAdjustments, roleRequests,
-    approveTransaction, rejectTransaction, updateRolesConfig,
+    updateRolesConfig,
     resolveRoleRequest,
     activityLogs, postAnnouncement, deleteAnnouncement, issueWarning,
     createResolvingCase, systemStatus, updateSystemStatus, claimReward

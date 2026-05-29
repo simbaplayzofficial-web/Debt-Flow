@@ -503,8 +503,6 @@ type State = {
   
   // Core Actions
   addTransaction: (askerId: string, pages: number, isCommunityService: boolean) => Promise<string | void>;
-  approveTransaction: (txId: string) => Promise<void>;
-  rejectTransaction: (txId: string) => Promise<void>;
   submitRating: (txId: string, rating: number) => Promise<void>;
   forgiveDebt: (borrowerId: string, amount: number) => Promise<void>;
   createTransactionRequest: (requesterUid: string, senderUid: string, type: string, amount: number, reason: string, deadline?: string) => Promise<string>;
@@ -1066,115 +1064,6 @@ export const useStore = create<State>()((set, get) => ({
     } catch (error: any) {
       handleFirestoreError(error, OperationType.CREATE, 'transactionRequests');
       throw error;
-    }
-  },
-
-  approveTransaction: async (txId) => {
-    const { currentUser, logActivity, transactions, users, calculateNetLedger } = get();
-    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) return;
-    
-    const tx = transactions.find(t => t.id === txId);
-    if (!tx || tx.status !== 'pending') return;
-
-    if (!tx.isCommunityService) {
-      const borrowerId = tx.askerId;
-      const borrowerLedger = calculateNetLedger(borrowerId);
-      const projected = borrowerLedger.netLedger - tx.debt;
-      if (projected < -10) {
-        await logActivity('DEBT_LIMIT_REACHED', { 
-          txId, 
-          borrowerId, 
-          amount: tx.debt,
-          currentLedger: borrowerLedger.netLedger,
-          projectedLedger: projected,
-          description: `Approval blocked: User @${users.find(u => u.id === borrowerId)?.username || borrowerId} would exceed debt limit of -10 (Projected: ${projected}).`
-        }, undefined, undefined, 'Monitor Workspace', 'Profile');
-        throw new Error(`Debt limit reached. Borrower would go below -10 on Net Ledger (Projected: ${projected}).`);
-      }
-    }
-
-    try {
-      const batch = writeBatch(db);
-      
-      batch.update(doc(db, 'transactions', txId), { 
-        status: 'approved',
-        approvedAt: new Date().toISOString(),
-        approvedBy: currentUser.id,
-        validatedBy: currentUser.username,
-        validatedAt: new Date().toISOString()
-      });
-
-      if (!tx.isCommunityService) {
-        const lenderId = tx.senderId;
-        const borrowerId = tx.askerId;
-
-        const u1 = lenderId < borrowerId ? lenderId : borrowerId;
-        const u2 = lenderId < borrowerId ? borrowerId : lenderId;
-        const debtId = `${u1}_${u2}`;
-        
-        const debtRef = doc(db, 'debts', debtId);
-        const debtSnap = await getDoc(debtRef);
-        
-        let currentBalance = 0;
-        if (debtSnap.exists()) {
-          currentBalance = (debtSnap.data() as NetDebt).netBalance;
-        }
-        
-        // user2 owes user1 if positive.
-        // lenderId is giving debt worth tx.debt to borrowerId.
-        // If lenderId is u1, then u2 (borrower) owes u1 more -> balance increases.
-        // If lenderId is u2, then u2 owes u1 less (or u1 owes u2 more) -> balance decreases.
-        const balanceChange = lenderId === u1 ? tx.debt : -tx.debt;
-        const newBalance = currentBalance + balanceChange;
-
-        batch.set(debtRef, {
-          id: debtId,
-          user1Id: u1,
-          user2Id: u2,
-          netBalance: newBalance,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-
-        // Update User Profile cache for quick display
-        const lender = users.find(u => u.id === lenderId);
-        const borrower = users.find(u => u.id === borrowerId);
-        
-        if (lender && borrower) {
-           batch.update(doc(db, 'users', lender.id), { debtToMe: (lender.debtToMe || 0) + tx.debt });
-           batch.update(doc(db, 'users', borrower.id), { debtOwed: (borrower.debtOwed || 0) + tx.debt });
-        }
-
-        // Log "major ledger shifts" if debt >= 5
-        if (tx.debt >= 5) {
-          await logActivity('MAJOR_LEDGER_SHIFT', {
-            targetUserId: borrowerId,
-            targetUsername: borrower?.username || borrowerId,
-            shiftAmount: -tx.debt,
-            projectedLedger: newBalance,
-            description: `@${borrower?.username || borrowerId} experienced a major shift of -${tx.debt} DB on Ledger.`
-          }, undefined, undefined, 'Monitor Workspace', 'Profile');
-        }
-      }
-      
-      const { recalculateLeaderboard } = get();
-      await batch.commit();
-      await recalculateLeaderboard();
-      await logActivity('APPROVE_TRANSACTION', { txId, debt: tx.debt }, undefined, undefined, 'Monitor Workspace');
-    } catch (error: any) {
-      console.error("APPROVE_ERROR:", error);
-      throw error;
-    }
-  },
-
-  rejectTransaction: async (txId) => {
-    const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
-
-    try {
-      await updateDoc(doc(db, 'transactions', txId), { status: 'rejected' });
-      await logActivity('REJECT_TRANSACTION', { txId }, undefined, undefined, 'Monitor Workspace');
-    } catch (error) {
-      console.error("REJECT_ERROR:", error);
     }
   },
 

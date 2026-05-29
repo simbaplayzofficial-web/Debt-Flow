@@ -14,8 +14,7 @@ type WorkspaceTab = 'validations' | 'bill_filing' | 'complaints' | 'enforcement'
 
 export const MonitorWorkspace: React.FC = () => {
   const { 
-    transactions, users, approveTransaction, rejectTransaction, 
-    currentUser, roleRequests, rolesConfig, updateRolesConfig, resolveRoleRequest,
+    transactions, users, currentUser, roleRequests, rolesConfig, updateRolesConfig, resolveRoleRequest,
     activityLogs, resolvingDeck, resolveBill,
     announcements, postAnnouncement, deleteAnnouncement, debtAdjustments,
     systemStatus, updateSystemStatus, issueWarning, revokeWarning, updateWarningRules, deleteUser,
@@ -116,9 +115,7 @@ export const MonitorWorkspace: React.FC = () => {
     );
   }
 
-  const pendingTransactions = transactions
-    .filter(t => t.status === 'pending')
-    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+  const pendingTransactions: any[] = [];
 
   const pendingRequests = (transactionRequests || [])
     .filter(r => r.status === 'pending')
@@ -168,7 +165,7 @@ export const MonitorWorkspace: React.FC = () => {
       {/* Workspace Tabs */}
       <div className="flex flex-wrap gap-2 p-1 bg-neutral-950 border border-neutral-800 rounded-2xl">
           {[
-            { id: 'validations', label: 'Validations', icon: ListChecks, count: pendingRequests.length + pendingTransactions.length + pendingDebts },
+            { id: 'validations', label: 'Validations', icon: ListChecks, count: pendingRequests.length + pendingDebts },
            { id: 'bill_filing', label: 'Bill Filing', icon: Send, count: 0 },
            { id: 'complaints', label: 'Complaints', icon: ShieldAlert, count: pendingComplaintsCount },
            ...(currentUser?.role === 'admin' ? [{ id: 'enforcement', label: 'Enforcement', icon: Gavel, count: pendingCases }] : []),
@@ -320,103 +317,7 @@ export const MonitorWorkspace: React.FC = () => {
                 </div>
               </div>
 
-              {/* 2. Old System Transaction Validations */}
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold tracking-tight italic flex items-center gap-2">
-                  <ListChecks className="text-blue-500" />
-                  Legacy Direct Validations
-                </h2>
-              </div>
-              
-              <div className="grid gap-4">
-                {pendingTransactions.map(tx => {
-                  const sender = users.find(u => u.id === tx.senderId);
-                  const asker = users.find(u => u.id === tx.askerId);
-                  return (
-                    <div key={tx.id} className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 lg:p-8 relative overflow-hidden group">
-                      <div className="flex flex-col lg:flex-row gap-8 items-center">
-                        <div className="flex-1 w-full flex items-center justify-around bg-neutral-950/50 p-6 rounded-2xl border border-neutral-800/50">
-                           <div className="text-center">
-                              <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2 italic">Sender</p>
-                              <div className="flex items-center justify-center gap-2">
-                                 <User size={14} className="text-blue-500" />
-                                 <span className="text-sm font-black text-neutral-100 italic">@{sender?.username || 'Unknown'}</span>
-                              </div>
-                           </div>
-                           <TrendingUp size={24} className="text-neutral-800 mx-4" />
-                           <div className="text-center">
-                              <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2 italic">Asker</p>
-                              <div className="flex items-center justify-center gap-2">
-                                 <User size={14} className="text-orange-500" />
-                                 <span className="text-sm font-black text-neutral-100 italic">@{asker?.username || 'Unknown'}</span>
-                              </div>
-                           </div>
-                        </div>
 
-                        <div className="flex flex-col gap-1 text-center lg:text-left">
-                           <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Recorded</p>
-                           <p className="text-2xl font-black italic text-neutral-100 uppercase tracking-tighter">{tx.pages} Pages</p>
-                           <p className="text-[9px] text-neutral-600 font-mono italic">
-                             {new Date(tx.createdAt?.seconds * 1000).toLocaleString()}
-                           </p>
-                        </div>
-
-                        <div className="bg-blue-600/10 border border-blue-600/20 px-8 py-4 rounded-2xl text-center">
-                           <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 italic">Value</p>
-                           <p className="text-3xl font-black italic text-blue-500 uppercase tracking-tighter">
-                             {tx.isCommunityService ? '0 CS' : `${tx.debt} DB`}
-                           </p>
-                        </div>
-
-                        <div className="flex gap-2 w-full lg:w-auto">
-                           <button 
-                             onClick={async () => {
-                                setLoading(tx.id);
-                                try {
-                                  await approveTransaction(tx.id);
-                                  alert("Transaction Approved.");
-                                } catch (err: any) {
-                                  alert(err.message);
-                                }
-                                setLoading(null);
-                             }}
-                             disabled={!!loading}
-                             className="flex-1 lg:w-32 bg-neutral-100 hover:bg-white text-neutral-950 py-4 rounded-2xl flex flex-col items-center justify-center transition-all shadow-xl active:scale-95"
-                           >
-                             <CheckCircle2 size={24} className="mb-1" />
-                             <span className="text-[9px] font-black uppercase tracking-widest">Approve</span>
-                           </button>
-                           <button 
-                             onClick={async () => {
-                               if(confirm('Reject this transaction?')) {
-                                 setLoading(tx.id);
-                                 try {
-                                   await rejectTransaction(tx.id);
-                                   alert("Transaction Rejected.");
-                                 } catch (err: any) {
-                                   alert(err.message);
-                                 }
-                                 setLoading(null);
-                               }
-                             }}
-                             disabled={!!loading}
-                             className="flex-1 lg:w-32 bg-neutral-800 hover:bg-red-900 text-neutral-400 hover:text-red-500 border border-neutral-700 py-4 rounded-2xl flex flex-col items-center justify-center transition-all active:scale-95"
-                           >
-                             <XCircle size={24} className="mb-1" />
-                             <span className="text-[9px] font-black uppercase tracking-widest">Reject</span>
-                           </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {pendingTransactions.length === 0 && (
-                  <div className="bg-neutral-900/30 border border-neutral-800 border-dashed rounded-[3rem] p-32 text-center">
-                     <ShieldCheck size={64} className="mx-auto text-neutral-800 mb-6" />
-                     <p className="text-neutral-600 text-sm font-black uppercase tracking-[0.3em] italic">Equilibrium maintained. Zero pending records.</p>
-                  </div>
-                )}
-              </div>
 
               {/* Debt Adjustment Approvals */}
               <div className="pt-10 border-t border-neutral-800 space-y-6">
