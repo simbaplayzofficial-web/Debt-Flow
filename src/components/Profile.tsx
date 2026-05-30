@@ -119,7 +119,7 @@ export default function Profile() {
 
   const myTransactions = transactions
     .filter(
-      (t) => t.askerId === currentUser?.id || t.senderId === currentUser?.id,
+      (t) => t.requesterUid === currentUser?.id || t.senderUid === currentUser?.id,
     )
     .sort((a, b) => {
       const dateA = a.createdAt?.toDate?.() || a.createdAt || 0;
@@ -127,10 +127,10 @@ export default function Profile() {
       return new Date(dateB).getTime() - new Date(dateA).getTime();
     });
 
-  // Rating requests for me as Asker (Borrower)
+  // Rating requests for me as Requester (Borrower)
   const pendingRatings = transactions.filter(
-    (t) => (t.askerId === currentUser?.id || t.requesterUid === currentUser?.id) && 
-           (t.status === "awaiting_rating" || (t.status === "approved" && !t.rating)),
+    (t) => (t.requesterUid === currentUser?.id) && 
+           (t.status === "awaiting_rating"),
   );
 
   const handleAddTransaction = async (e: React.FormEvent) => {
@@ -572,25 +572,25 @@ export default function Profile() {
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-bold text-neutral-100">
-                              {users.find((u) => u.id === tx.senderId || u.id === tx.senderUid)?.username || "Operational Associate"}{" "}
+                                {users.find((u) => u.id === tx.senderUid)?.username || "Operational Associate"}{" "}
                               lent labor/debt
                             </p>
-                            {tx.isCommunityService && (
+                            {tx.freeWork && (
                               <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
-                                CS
+                                FREE
                               </span>
                             )}
                           </div>
                           <p className="text-[10px] text-neutral-500 font-mono mt-1">
-                            Type: {tx.type || "transaction"} | Reason: {tx.reason || "Unspecified"}
+                            Reason: {tx.reason || "Unspecified"}
                           </p>
                         </div>
                         <div className="text-right">
                           <p className="text-lg font-black italic text-orange-500">
-                            {tx.isCommunityService ? "0 (CS)" : tx.amount || tx.debt} DEBT
+                            {tx.freeWork ? "0 (FREE)" : `${tx.amount} DB`}
                           </p>
                           <p className="text-[10px] text-neutral-500">
-                            {tx.pages || tx.amount} DB value
+                            {tx.pages} pages value
                           </p>
                         </div>
                       </div>
@@ -662,8 +662,8 @@ export default function Profile() {
                                 type="button"
                                 onClick={async () => {
                                   try {
-                                    const { submitTransactionRating } = useStore.getState();
-                                    await submitTransactionRating(tx.id, currentStars, currentReview);
+                                    const { submitRating } = useStore.getState();
+                                    await submitRating(tx.id, tx.senderUid, tx.requesterUid, currentStars, currentReview);
                                     setRatingInput(null);
                                   } catch (err: any) {
                                     alert(err.message || "Failed to submit rating.");
@@ -731,14 +731,14 @@ export default function Profile() {
                            </span>
 
                            {/* Mark Work Done CTA Button for performer */}
-                           {(tx.status === 'active' || tx.status === 'approved') && (tx.senderId === currentUser?.id || tx.senderUid === currentUser?.id) && (
+                           {(tx.status === 'active') && (tx.senderUid === currentUser?.id) && (
                              <button
                                type="button"
                                onClick={async () => {
                                  if (confirm("Initiate completion callback? This will signal the requester to audit and rate your work.")) {
                                    try {
-                                     const { completeTransactionWork } = useStore.getState();
-                                     await completeTransactionWork(tx.id);
+                                     const { completeTransaction } = useStore.getState();
+                                     await completeTransaction(tx.id);
                                      alert("Success: Task completed. Requester has been notified for feedback.");
                                    } catch (err: any) {
                                      alert(err.message || "Failed to submit completion signals.");
@@ -755,8 +755,8 @@ export default function Profile() {
                      </div>
                      <div className="text-right">
                        <p className="text-sm font-black italic text-neutral-200">
-                         {tx.senderId === currentUser?.id || tx.senderUid === currentUser?.id ? "+" : "-"}
-                         {tx.isCommunityService ? 0 : tx.amount || tx.debt} DB
+                         {tx.senderUid === currentUser?.id ? "+" : "-"}
+                         {tx.freeWork ? 0 : tx.amount} DB
                        </p>
                        {(tx.status === "completed" && tx.rating) && (
                          <div className="flex items-center gap-1 justify-end text-[10px] text-yellow-500 font-bold">

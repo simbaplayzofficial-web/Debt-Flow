@@ -243,7 +243,7 @@ export const MonitorWorkspace: React.FC = () => {
                           <div className="flex flex-col gap-1 text-center lg:text-left min-w-[200px]">
                             <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Specifications</p>
                             <p className="text-sm font-black text-neutral-100 uppercase tracking-tight">
-                              {req.isCommunityService ? "Community Service Work" : "Regular Translation Work"}
+                              {req.freeWork ? "Community Service Work" : "Regular Translation Work"}
                             </p>
                             {req.reason && <p className="text-xs text-neutral-400 italic">"{req.reason}"</p>}
                           </div>
@@ -260,7 +260,7 @@ export const MonitorWorkspace: React.FC = () => {
                           <div className="bg-blue-600/10 border border-blue-600/20 px-6 py-3 rounded-xl text-center min-w-[100px]">
                             <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1 italic">Value</p>
                             <p className="text-xl font-black italic text-blue-500 tracking-tighter font-mono">
-                              {req.isCommunityService ? '0 CS' : `${req.debt ?? req.amount ?? 0} DB`}
+                              {req.freeWork ? '0 CS' : `${req.amount ?? 0} DB`}
                             </p>
                           </div>
 
