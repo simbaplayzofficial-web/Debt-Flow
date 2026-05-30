@@ -8,7 +8,6 @@ import {
 import { motion } from 'motion/react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ComplaintBox } from './ComplaintBox';
 import { ChatterPanel } from './ChatterPanel';
 
 export default function Groups() {
@@ -72,7 +71,6 @@ export default function Groups() {
           { id: 'studying', label: 'Studying Together', icon: BookOpen },
           { id: 'chatting', label: 'Chatting Together', icon: MessageCircle },
           { id: 'monitoring', label: 'Monitor Workspace', icon: Shield },
-          { id: 'blackbox', label: 'Black Box', icon: Lock },
           { id: 'chattering', label: 'Direct Chat', icon: MessageSquare },
         ].map(g => (
           <button
@@ -97,10 +95,6 @@ export default function Groups() {
           {activeGroup === 'chattering' ? (
              <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar bg-neutral-950/20">
               <ChatterPanel />
-            </div>
-          ) : activeGroup === 'blackbox' ? (
-            <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar bg-neutral-950/20">
-              <ComplaintBox />
             </div>
           ) : activeGroup === 'monitoring' ? (
             <div className="flex flex-col h-full bg-neutral-950/20">
@@ -421,24 +415,6 @@ export default function Groups() {
                    <p className="text-xs text-neutral-600 text-center italic py-4">Equilibrium maintained.</p>
                 )}
                </div>
-           </div>
-
-           {/* Complaint Box Redirect Card */}
-           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-[0_0_20px_rgba(245,158,11,0.02)]">
-              <div className="p-5 border-b border-neutral-800 bg-amber-600/5 flex items-center gap-2">
-                 <Lock size={16} className="text-amber-500 animate-pulse" />
-                 <h3 className="text-xs font-black uppercase tracking-widest italic text-amber-500">Black Box</h3>
-              </div>
-              <div className="p-5">
-                 <p className="text-[10px] text-neutral-400 mb-4 leading-relaxed">Submit anonymous complaints directly to system monitors.</p>
-                 <button 
-                   onClick={() => setActiveGroup('blackbox')}
-                   className="w-full bg-amber-600 hover:bg-amber-500 text-white font-mono text-[10px] uppercase font-bold tracking-widest py-3 rounded-xl transition-all shadow-md shadow-amber-600/10 cursor-pointer text-center flex items-center justify-center gap-2"
-                   id="btn-sidebar-blackbox-redirect"
-                 >
-                   <EyeOff size={12} /> Access Black Box
-                 </button>
-              </div>
            </div>
         </aside>
       </div>

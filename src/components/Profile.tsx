@@ -24,7 +24,6 @@ import {
   Video,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { ComplaintBox } from "./ComplaintBox";
 
 export default function Profile() {
   const {
@@ -1170,11 +1169,6 @@ export default function Profile() {
               </div>
             </section>
           )}
-
-          {/* Consolidated Complaint Box Component */}
-          <section className="pt-6 border-t border-neutral-800">
-            <ComplaintBox />
-          </section>
 
         </div>
       </div>

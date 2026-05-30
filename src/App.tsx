@@ -18,6 +18,7 @@ import SpecialOps from './components/SpecialOps';
 import { MonitorWorkspace } from './components/MonitorWorkspace';
 import Chatterbox from './components/Chatterbox';
 import ControlPanel from './components/ControlPanel';
+import ComplaintHub from './components/ComplaintHub';
 
 function SidebarItem({ icon: Icon, label, active, onClick, className = '' }: { icon: any, label: string, active: boolean, onClick: () => void, className?: string }) {
   return (
@@ -49,6 +50,7 @@ export default function App() {
       dashboard: true,
       profile: true,
       groups: true,
+      'complaint-hub': true,
       chatterbox: true,
       representatives: true,
       specialops: hasSpecialAccess && specialOpsMode,
@@ -66,6 +68,10 @@ export default function App() {
   React.useEffect(() => {
     if (currentUser) {
       console.log("Current Role (UI State):", currentUser.role);
+    }
+    // Redirect BlackBox to ComplaintHub
+    if (window.location.hash === '#/blackbox') {
+      setActiveTab('complaint-hub');
     }
   }, [currentUser]);
 
@@ -92,6 +98,7 @@ export default function App() {
       case 'monitor': return <MonitorWorkspace />;
       case 'chatterbox': return <Chatterbox />;
       case 'control': return <ControlPanel />;
+      case 'complaint-hub': return <ComplaintHub />;
       default: return <Dashboard />;
     }
   };
@@ -193,6 +200,13 @@ export default function App() {
             label="Groups" 
             active={activeTab === 'groups'} 
             onClick={() => { setActiveTab('groups'); setIsSidebarOpen(false); }} 
+          />
+          <SidebarItem 
+            icon={ShieldCheck} 
+            label="Complaint Hub" 
+            active={activeTab === 'complaint-hub'} 
+            onClick={() => { setActiveTab('complaint-hub'); setIsSidebarOpen(false); }} 
+            className="text-orange-400 border-orange-500/10 hover:bg-orange-500/10"
           />
           <SidebarItem 
             icon={MessageCircle} 

@@ -2990,12 +2990,15 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   submitComplaint: async (subject, complaint, extraFields = {}) => {
-    const { currentUser, logActivity } = get();
-    if (!currentUser) throw new Error("UNAUTHORIZED");
+    const { logActivity } = get();
+    const user = auth.currentUser;
+    const uid = user?.uid;
+    if (!uid) throw new Error("User not authenticated");
+    
     const docRef = await addDoc(collection(db, "complaints"), {
-      subject,
-      complaint,
-      createdByUid: currentUser.uid,
+      subject: subject || "",
+      complaint: complaint || "",
+      createdByUid: uid,
       createdAt: serverTimestamp(),
       status: "pending",
       assignedMonitorId: null,
@@ -3005,6 +3008,7 @@ export const useStore = create<State>()((set, get) => ({
       lastMessageAt: serverTimestamp(),
       ...extraFields
     });
+    
     await logActivity('COMPLAINT_FILED', { subject, id: docRef.id, ...extraFields }, undefined, undefined, 'Black Box');
     return docRef.id;
   },
