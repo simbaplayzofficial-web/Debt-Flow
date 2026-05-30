@@ -4,7 +4,7 @@ import {
   Database, Download, Trash2, Search, 
   ChevronDown, ChevronUp, AlertTriangle, ShieldCheck,
   ArrowUpRight, ArrowDownRight, History, FileText,
-  UserCheck, Activity, CheckCircle2, CloudFog
+  UserCheck, Activity, CheckCircle2, CloudFog, RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -16,13 +16,22 @@ export default function MasterDataPanel() {
     currentUser,
     users, transactions, debts, activityLogs, 
     announcements, resolvingDeck, anonymousComplaints,
-    debtAdjustments, groupPosts, resetSystem 
+    debtAdjustments, groupPosts, resetSystem,
+    ratings, directMessages, complaints, executeGlobalPurge,
+    systemBackups, rollbackSystem
   } = useStore();
   
   const [activeTab, setActiveTab] = useState<DataTab>('registry');
   const [search, setSearch] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [purgeInput, setPurgeInput] = useState('');
+
+  // Rollback flow states
+  const [isRollingBack, setIsRollingBack] = useState(false);
+  const [rollbackTargetId, setRollbackTargetId] = useState<string | null>(null);
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false);
+  const [rollbackInput, setRollbackInput] = useState('');
 
   // Advanced activity log filters
   const [filterRole, setFilterRole] = useState<string>('all');
@@ -120,131 +129,164 @@ export default function MasterDataPanel() {
     return Array.from(list).sort();
   }, [activityLogs, currentUser]);
 
-  const handleExportAndReset = async () => {
+  const handleGlobalPurgeWipe = async () => {
+    if (purgeInput !== 'PURGE SYSTEM') {
+      alert("Verification mismatched. Please type 'PURGE SYSTEM' to confirm.");
+      return;
+    }
+
     try {
       setIsResetting(true);
       
       // 1. Prepare Data for Excel
       const wb = XLSX.utils.book_new();
       
-      // Users Sheet
+      // 1. Users Sheet
       const usersData = users.map(u => ({
         ID: u.id,
-        Username: u.username,
-        Role: u.role,
-        IntegrityLVL: u.integrityLevel,
-        IntegrityScore: u.integrityScore,
-        WarningLevel: u.warningCount,
-        DebtOwed: u.debtOwed,
-        DebtToMe: u.debtToMe,
-        CommunityService: u.communityServicesNeeded,
-        IsRemoved: u.isPermanentlyRemoved
+        Username: u.username || '',
+        Email: u.email || '',
+        Role: u.role || 'user',
+        IntegrityLVL: u.integrityLevel ?? 0,
+        IntegrityScore: u.integrityScore ?? 100,
+        WarningLevel: u.warningCount ?? 0,
+        DebtOwed: u.debtOwed ?? 0,
+        DebtToMe: u.debtToMe ?? 0,
+        CommunityService: u.communityServicesNeeded ?? 0,
+        IsRemoved: u.isPermanentlyRemoved ?? false
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(usersData), "Users");
       
-      // Transactions Sheet
+      // 2. Transactions Sheet
       const txData = transactions.map(t => ({
         ID: t.id,
-        Lender: users.find(u => u.id === t.senderId)?.username || t.senderId,
-        Borrower: users.find(u => u.id === t.askerId)?.username || t.askerId,
-        Pages: t.pages,
-        Debt: t.debt,
-        Status: t.status,
-        IsCommunityService: t.isCommunityService,
-        Timestamp: t.createdAt?.toDate?.() || t.createdAt
+        SenderUid: t.senderId || t.senderUid || '',
+        RequesterUid: t.askerId || t.requesterUid || '',
+        Pages: t.pages ?? 0,
+        Amount: t.debt ?? t.amount ?? 0,
+        Status: t.status || '',
+        Reason: t.reason || '',
+        FreeWork: t.isCommunityService ?? t.freeWork ?? false,
+        CreatedAt: t.createdAt ? (t.createdAt?.toDate ? t.createdAt.toDate().toISOString() : new Date(t.createdAt).toISOString()) : ''
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(txData), "Transactions");
       
-      // Ledger Sheet
-      const ledgerData = debts.map(d => ({
-        ID: d.id,
-        User1: users.find(u => u.id === d.user1Id)?.username || d.user1Id,
-        User2: users.find(u => u.id === d.user2Id)?.username || d.user2Id,
-        Balance: d.netBalance,
-        UpdatedAt: d.updatedAt
+      // 3. Ratings Sheet
+      const ratingsData = (ratings || []).map(r => ({
+        ID: r.id,
+        TransactionId: r.transactionId || '',
+        SenderUid: r.senderUid || '',
+        RequesterUid: r.requesterUid || '',
+        Rating: r.stars ?? 0,
+        Review: r.review || '',
+        Timestamp: r.createdAt ? (r.createdAt?.toDate ? r.createdAt.toDate().toISOString() : new Date(r.createdAt).toISOString()) : ''
       }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ledgerData), "Ledger");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ratingsData), "Ratings");
 
-      // Warnings Sheet
-      try {
-        const { getDocs, collectionGroup } = await import('firebase/firestore');
-        const { db } = await import('../firebase');
-        const warningsSnap = await getDocs(collectionGroup(db, 'warnings'));
-        const warningsData = warningsSnap.docs.map(d => {
-          const data = d.data();
-          const target = users.find(u => d.ref.path.includes(u.id));
-          return {
-            ID: d.id,
-            TargetUser: target?.username || 'Unknown',
-            Level: data.level,
-            Reason: data.reason,
-            IssuedBy: users.find(u => u.id === data.issuedBy)?.username || data.issuedBy,
-            Timestamp: data.timestamp
-          };
+      // 4. Chats Sheet
+      const chatsData: any[] = [];
+      (directMessages || []).forEach(m => {
+        chatsData.push({
+          ID: m.id || '',
+          Room_or_Group: 'Direct Message',
+          Author: users.find(u => u.id === m.senderUid)?.username || m.senderUid || '',
+          Message: m.message || '',
+          Timestamp: m.createdAt ? (m.createdAt?.toDate ? m.createdAt.toDate().toISOString() : new Date(m.createdAt).toISOString()) : ''
         });
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(warningsData), "Warnings");
-      } catch (e) {
-        console.warn("Could not export detailed warnings sheet (Index might be missing).");
+      });
+      if (groupPosts) {
+        Object.entries(groupPosts).forEach(([gid, posts]) => {
+          (posts || []).forEach(p => {
+            chatsData.push({
+              ID: p.id || '',
+              Room_or_Group: `Group: ${gid}`,
+              Author: users.find(u => u.id === p.authorId)?.username || p.authorId || '',
+              Message: p.content || '',
+              Timestamp: p.timestamp || ''
+            });
+          });
+        });
       }
-      
-      // Resolving Deck Sheet
-      const resolvingData = resolvingDeck.map(c => ({
-        ID: c.id,
-        Description: c.description,
-        Involved: c.involvedUsers.join(', '),
-        Status: c.status,
-        CreatedBy: users.find(u => u.id === c.createdBy)?.username || c.createdBy,
-        Timestamp: c.timestamp
-      }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resolvingData), "Resolving Deck");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(chatsData), "Chats");
 
-      // Anonymous Complaints Sheet
-      const complData = (anonymousComplaints || []).map(ac => ({
-        ID: ac.id,
-        Message: ac.message,
-        Category: ac.category || 'General',
-        CreatedAt: ac.createdAt,
-        Status: ac.status,
-        Source: ac.source,
-        AssignedTo: users.find(u => u.id === ac.assignedTo)?.username || ac.assignedTo || 'Unassigned',
-        InternalNotes: ac.internalNotes || ''
+      // 5. Complaints Sheet
+      const complaintsData = (anonymousComplaints || []).concat(complaints || []).map(c => ({
+        ID: c.id || '',
+        Message: c.message || c.complaint || '',
+        Category: c.category || c.subject || 'General',
+        CreatedAt: c.createdAt ? (c.createdAt?.toDate ? c.createdAt.toDate().toISOString() : new Date(c.createdAt).toISOString()) : '',
+        Status: c.status || 'pending',
+        Source: c.source || '',
+        AssignedTo: c.assignedTo || '',
+        InternalNotes: c.internalNotes || ''
       }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(complData), "Anonymous Complaints");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(complaintsData), "Complaints");
 
-      // Activity Logs Sheet
-      const logsData = activityLogs.map(l => ({
-        ID: l.id,
-        Worker: users.find(u => u.id === l.userId)?.username || l.userId,
-        Action: l.action,
-        Details: l.details,
-        Timestamp: l.timestamp
+      // 6. Logs Sheet
+      const logsData = (activityLogs || []).map(l => ({
+        ID: l.id || '',
+        User: l.username || l.userId || '',
+        Action: l.activityType || l.action || '',
+        Details: l.description || l.details || '',
+        Location: l.location || 'General',
+        Timestamp: l.timestamp ? (l.timestamp?.toDate ? l.timestamp.toDate().toISOString() : new Date(l.timestamp).toISOString()) : ''
       }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(logsData), "Activity Logs");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(logsData), "Logs");
 
-      // Announcements Sheet
-      const annData = announcements.map(a => ({
-        ID: a.id,
-        Title: a.title,
-        Section: a.section,
-        Author: users.find(u => u.id === a.authorId)?.username || a.authorId,
-        Posted: a.timestamp,
-        Expires: a.expiresAt
+      // 7. System Activity Sheet
+      const systemActivityData = (activityLogs || []).filter(l => l.location === 'Master Data' || l.location === 'Admin' || l.action?.includes('PURGE') || l.activityType?.includes('PURGE')).map(l => ({
+        ID: l.id || '',
+        ExecutedBy: l.username || l.userId || '',
+        Action: l.activityType || l.action || '',
+        Details: l.description || l.details || '',
+        Timestamp: l.timestamp ? (l.timestamp?.toDate ? l.timestamp.toDate().toISOString() : new Date(l.timestamp).toISOString()) : ''
       }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(annData), "Announcements");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(systemActivityData), "System Activity");
+
+      // Format filename with Y_M_D
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const dateString = `${year}_${month}_${day}`;
+      const fileName = `global_archive_${dateString}.xlsx`;
 
       // Export file
-      XLSX.writeFile(wb, `DebtFlow_MasterData_Backup_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(wb, fileName);
 
-      // 2. Clear Collections
-      await resetSystem();
+      // 2. Clear Collections via global purge action
+      await executeGlobalPurge();
       
-      alert("System Reset Successfully. All data exported to Excel.");
+      alert("Emergency Archive & Purge Cycle completed successfully!\n\nAll transactional/system records excised.\nPreserved user registry and security accounts.\nArchive download dispatched!");
       setShowConfirm(false);
+      setPurgeInput('');
     } catch (error) {
       console.error("Master Reset Error:", error);
-      alert("Error during reset. Check console.");
+      alert("Error during purge. Check console.");
     } finally {
       setIsResetting(false);
+    }
+  };
+
+  const handleSnapshotRollback = async () => {
+    if (!rollbackTargetId) return;
+    if (rollbackInput !== 'ROLLBACK SYSTEM') {
+      alert("Verification mismatched. Please type 'ROLLBACK SYSTEM' to confirm.");
+      return;
+    }
+    
+    try {
+      setIsRollingBack(true);
+      await rollbackSystem(rollbackTargetId);
+      alert("System safely restored from selected system snapshot successfully!\n\nAll transactional and historical records rolled back.\nPreserved credentials and role accounts.");
+      setShowRollbackConfirm(false);
+      setRollbackTargetId(null);
+      setRollbackInput('');
+    } catch (err: any) {
+      console.error("Rollback Error:", err);
+      alert(`Error during rollback: ${err?.message || err}`);
+    } finally {
+      setIsRollingBack(false);
     }
   };
 
@@ -678,48 +720,66 @@ export default function MasterDataPanel() {
       {/* Confirmation Modal */}
       <AnimatePresence>
         {showConfirm && (
-          <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+          <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[100] flex items-center justify-center p-6">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-xl bg-neutral-950 border-2 border-red-600/30 rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_-20px_rgba(220,38,38,0.3)]"
+              className="w-full max-w-xl bg-neutral-950 border-2 border-red-600 rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(220,38,38,0.25)]"
             >
               <div className="p-10 text-center">
-                <div className="w-20 h-20 bg-red-600/20 rounded-full flex items-center justify-center text-red-500 mx-auto mb-8 animate-pulse">
+                <div className="w-20 h-20 bg-red-600/20 rounded-full flex items-center justify-center text-red-500 mx-auto mb-6 animate-pulse border border-red-600/30">
                   <AlertTriangle size={48} />
                 </div>
-                <h3 className="text-3xl font-black italic mb-4">CRITICAL SYSTEM RESET</h3>
-                <p className="text-neutral-400 leading-relaxed mb-8">
-                  You are about to export all community records and <span className="text-red-500 font-bold uppercase">PERMANENTLY WIPE</span> all collections.
-                  This includes transactions, ledgers, profiles, and logs. This action is <span className="text-white font-bold italic">irreversible</span>.
+                <h3 className="text-3xl font-black italic mb-2 tracking-tight text-white uppercase">Emergency Purge Active</h3>
+                <p className="text-red-500 font-black text-xs uppercase tracking-widest mb-6">ADMINISTRATOR AUTHORIZATION REQUIRED</p>
+                
+                <p className="text-neutral-300 text-sm leading-relaxed mb-6 font-bold">
+                  This will permanently delete all system data except user accounts. It automatically generates a safe rollback recovery snapshot inside Firestore.
                 </p>
                 
-                <div className="p-6 bg-neutral-900 border border-neutral-800 rounded-3xl mb-8 text-left">
-                   <p className="text-[10px] font-black text-neutral-500 uppercase tracking-[0.2em] mb-3">Safe Protocol Active:</p>
-                   <ul className="text-xs text-neutral-200 space-y-2 list-disc list-inside">
-                     <li>Current administrator session remains valid.</li>
-                     <li>Excel backup will be generated immediately.</li>
-                     <li>System state resets to timestamp zero.</li>
+                <div className="p-6 bg-neutral-900/60 border border-neutral-800 rounded-3xl mb-6 text-left space-y-2">
+                   <p className="text-[10px] font-black text-red-500 uppercase tracking-[0.2em]">Safe Data Model Enforcement:</p>
+                   <ul className="text-[11px] text-neutral-400 space-y-1.5 list-disc list-inside">
+                     <li>Preserves all <span className="text-green-500 font-bold">user credentials</span> & authentication profiles.</li>
+                     <li>Generates a consolidated spreadsheet backup immediately.</li>
+                      <li>Creates a safe restore snapshot (`systemBackups` document) in Firestore.</li>
+                     <li>Excises transactional logs, direct messages, complaints, ratings, and active debt strings.</li>
                    </ul>
+                </div>
+
+                <div className="mb-6 text-left">
+                  <label className="block text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-2 italic">
+                    Type <span className="text-red-500 font-bold italic underline">PURGE SYSTEM</span> to authorize:
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="PURGE SYSTEM"
+                    value={purgeInput}
+                    onChange={(e) => setPurgeInput(e.target.value)}
+                    className="w-full bg-neutral-900 border border-neutral-800 focus:border-red-600 rounded-xl px-4 py-3.5 text-center text-sm font-black tracking-widest text-red-500 placeholder-neutral-700 focus:outline-none transition-all uppercase"
+                  />
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4">
                   <button 
-                    onClick={() => setShowConfirm(false)}
-                    className="flex-1 py-4 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 font-black rounded-2xl transition-all uppercase tracking-widest text-xs"
+                    onClick={() => {
+                      setShowConfirm(false);
+                      setPurgeInput('');
+                    }}
+                    className="flex-1 py-4 bg-neutral-900 hover:bg-neutral-850 text-neutral-400 font-black rounded-2xl transition-all uppercase tracking-widest text-xs border border-neutral-800"
                   >
                     Abort Protocol
                   </button>
                   <button 
-                    onClick={handleExportAndReset}
-                    disabled={isResetting}
-                    className="flex-1 py-4 bg-red-600 hover:bg-red-500 text-white font-black rounded-2xl transition-all shadow-lg shadow-red-600/20 uppercase tracking-widest text-xs flex items-center justify-center gap-3 disabled:opacity-50"
+                    onClick={handleGlobalPurgeWipe}
+                    disabled={isResetting || purgeInput !== 'PURGE SYSTEM'}
+                    className="flex-1 py-4 bg-red-600 hover:bg-red-500 text-white font-black rounded-2xl transition-all shadow-lg shadow-red-600/20 uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-30 disabled:hover:bg-red-600 disabled:cursor-not-allowed"
                   >
                     {isResetting ? (
                       <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                     ) : (
-                      <Download size={18} />
+                      <Trash2 size={16} />
                     )}
                     Confirm & Execute
                   </button>

@@ -418,5 +418,41 @@ service cloud.firestore {
       );
       allow update, delete: if isAdmin();
     }
+
+    // -------------------------------------------------------------------------
+    // Legacy/Core Ratings, Chats, Logs, Activity, and SystemLogs Rules
+    // -------------------------------------------------------------------------
+    match /ratings/{ratingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /chats/{chatId} {
+      allow read, write: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    match /logs/{logId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    match /activity/{activityId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    match /systemLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /systemBackups/{backupId} {
+      allow read, write: if isAdmin();
+    }
   }
 }

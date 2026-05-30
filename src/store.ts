@@ -144,10 +144,18 @@ export type Transaction = {
   pages: number;
   reason: string;
   freeWork: boolean;
-  status: 'active' | 'awaiting_rating' | 'completed';
+  status: 'pending_acceptance' | 'active' | 'awaiting_rating' | 'completed' | 'rejected';
   createdAt: any;
   approvedBy?: string;
   rating?: number;
+
+  // Backward compatibility alias definitions
+  senderId?: string;
+  askerId?: string;
+  debt?: number;
+  isCommunityService?: boolean;
+  validatedBy?: string;
+  validatedAt?: string;
 };
 
 export type Rating = {
@@ -383,6 +391,7 @@ export type VoteResponse = {
 };
 
 export const SPY_OWNER_ID = "K7MRkBbJtdSapnLfw2giwLzmhwA3";
+export const bootstrapAdmins = ['patty@debtflow.com', 'chiti@debtflow.com', 'simbaplayzofficial@gmail.com', 'simba@debtflow.com'];
 
 export type SpyOpsRole = 'investigation' | 'defence' | 'diplomacy';
 
@@ -433,6 +442,23 @@ export type Reward = {
   period: string; // e.g. "2024-04"
 };
 
+export type SystemBackup = {
+  id: string;
+  createdAt: any;
+  createdBy: string;
+  reason: string;
+  data: {
+    transactionRequests: any[];
+    transactions: any[];
+    ratings: any[];
+    chats: any[];
+    complaints: any[];
+    logs: any[];
+    activity: any[];
+    [key: string]: any; // fallback for extra collections
+  };
+};
+
 type State = {
   currentUser: UserProfile | null;
   users: UserProfile[];
@@ -472,6 +498,7 @@ type State = {
   transactionRequests: TransactionRequest[];
   transactions: Transaction[];
   ratings: Rating[];
+  systemBackups: SystemBackup[];
   
   isLoading: boolean;
   authError: string | null;
@@ -482,11 +509,14 @@ type State = {
   logout: () => Promise<void>;
   
   // Core Actions
-  recordTransaction: (senderUid: string, amount: number, pages: number, reason: string, freeWork: boolean) => Promise<string>;
+  recordTransaction: (borrowerUid: string, amount: number, pages: number, reason: string, freeWork: boolean) => Promise<string>;
   approveTransactionRequest: (requestId: string, verdict: string) => Promise<void>;
   rejectTransactionRequest: (requestId: string, verdict: string) => Promise<void>;
+  acceptTransaction: (transactionId: string) => Promise<void>;
+  cancelTransaction: (transactionId: string) => Promise<void>;
   completeTransaction: (transactionId: string) => Promise<void>;
   submitRating: (transactionId: string, senderUid: string, requesterUid: string, stars: number, review: string) => Promise<void>;
+  forgiveDebt: (borrowerId: string, amount: number) => Promise<void>;
   calculateNetLedger: (userId: string) => {
     incomingOwed: number;
     outgoingOwed: number;
@@ -538,6 +568,8 @@ type State = {
   postBillStaffComment: (billId: string, message: string) => Promise<void>;
  
   resetSystem: () => Promise<void>;
+  executeGlobalPurge: () => Promise<void>;
+  rollbackSystem: (backupId: string) => Promise<void>;
   recalculateLeaderboard: () => Promise<void>;
   
   // Complaints (Black Box)
@@ -606,6 +638,7 @@ export const useStore = create<State>()((set, get) => ({
   transactionRequests: [],
   transactions: [],
   ratings: [],
+  systemBackups: [],
   warningRules: [
     { level: 1, penalty: 'Official warning registered', integrityDeduction: 5 },
     { level: 2, penalty: 'Mandatory community service', integrityDeduction: 15 },
@@ -994,15 +1027,17 @@ export const useStore = create<State>()((set, get) => ({
     set({ currentUser: null, specialOpsMode: false });
   },
 
-  recordTransaction: async (senderUid, amount, pages, reason, freeWork) => {
+  recordTransaction: async (borrowerUid, amount, pages, reason, freeWork) => {
     const { currentUser, logActivity } = get();
     if (!currentUser) throw new Error("UNAUTHORIZED");
 
+    const finalAmount = freeWork ? 0 : Math.ceil(pages / 5);
+
     try {
       const requestData = {
-        requesterUid: currentUser.id,
-        senderUid,
-        amount,
+        requesterUid: borrowerUid,
+        senderUid: currentUser.id,
+        amount: finalAmount,
         pages,
         reason,
         freeWork,
@@ -1011,39 +1046,12 @@ export const useStore = create<State>()((set, get) => ({
       };
       
       const docRef = await addDoc(collection(db, 'transactionRequests'), requestData);
-      await logActivity('CREATE_TRANSACTION_REQUEST', { requestId: docRef.id, amount, pages, reason, freeWork }, currentUser.id, currentUser.username, 'Profile');
+      await logActivity('CREATE_TRANSACTION_REQUEST', { requestId: docRef.id, amount: finalAmount, pages, reason, freeWork }, currentUser.id, currentUser.username, 'Profile');
       return docRef.id;
     } catch (error: any) {
       handleFirestoreError(error, OperationType.CREATE, 'transactionRequests');
       throw error;
     }
-  },
-
-  submitRating: async (txId, rating) => {
-    const { currentUser, transactions, users, logActivity } = get();
-    if (!currentUser) return;
-    
-    const tx = transactions.find(t => t.id === txId);
-    if (!tx || tx.askerId !== currentUser.id || tx.status !== 'approved') return;
-    
-    const lender = users.find(u => u.id === tx.senderId);
-    if (!lender) return;
-
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'transactions', txId), { status: 'completed', rating });
-    
-    const newCount = lender.ratingCount + 1;
-    const newAvg = (lender.ratingAverage * lender.ratingCount + rating) / newCount;
-    
-    batch.update(doc(db, 'users', lender.id), {
-      ratingAverage: newAvg,
-      ratingCount: newCount
-    });
-    
-    const { recalculateLeaderboard } = get();
-    await batch.commit();
-    await recalculateLeaderboard();
-    await logActivity('RATE_TRANSACTION', { txId, rating }, undefined, undefined, 'Transaction Center');
   },
 
   createTransactionRequest: async (requesterUid, senderUid, type, amount, reason, deadline) => {
@@ -1102,22 +1110,55 @@ export const useStore = create<State>()((set, get) => ({
 
       // 2. Create TransactionNode
       const txId = uuidv4();
+      const nowStr = new Date().toISOString();
       batch.set(doc(db, 'transactions', txId), {
         id: txId,
         senderUid: req.senderUid,
+        senderId: req.senderUid, // legacy alias
         requesterUid: req.requesterUid,
+        askerId: req.requesterUid, // legacy alias
         amount: req.amount,
         pages: req.pages,
+        debt: req.amount, // legacy alias
         reason: req.reason,
         freeWork: req.freeWork,
-        status: 'active',
+        isCommunityService: req.freeWork, // legacy alias
+        status: 'pending_acceptance',
         createdAt: serverTimestamp(),
+        approvedBy: currentUser.id,
+        validatedBy: currentUser.id, // holiday alias
+        validatedAt: nowStr // legacy alias
       });
 
-      // 3. Update Ledger (if NOT freeWork)
-      if (!req.freeWork) {
-        const u1 = req.senderUid < req.requesterUid ? req.senderUid : req.requesterUid;
-        const u2 = req.senderUid < req.requesterUid ? req.requesterUid : req.senderUid;
+      await batch.commit();
+      await logActivity('APPROVE_TRANSACTION', { requestId, txId }, currentUser.id, currentUser.username, 'Monitor Workspace');
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.WRITE, `transactions/${requestId}`);
+      throw error;
+    }
+  },
+
+  acceptTransaction: async (transactionId) => {
+    const { currentUser, transactions, logActivity } = get();
+    if (!currentUser) throw new Error("UNAUTHENTICATED");
+
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx || tx.senderUid !== currentUser.id || tx.status !== 'pending_acceptance') {
+      throw new Error("Transaction not found or not pending acceptance");
+    }
+
+    try {
+      const batch = writeBatch(db);
+
+      // 1. Update status to active
+      batch.update(doc(db, 'transactions', transactionId), {
+        status: 'active',
+      });
+
+      // 2. Update Ledger (if NOT freeWork)
+      if (!tx.freeWork) {
+        const u1 = tx.senderUid < tx.requesterUid ? tx.senderUid : tx.requesterUid;
+        const u2 = tx.senderUid < tx.requesterUid ? tx.requesterUid : tx.senderUid;
         const debtId = `${u1}_${u2}`;
         const debtRef = doc(db, 'debts', debtId);
         
@@ -1127,7 +1168,7 @@ export const useStore = create<State>()((set, get) => ({
         // Sender (lender) gives work, requester (borrower) receives.
         // If senderUid is u1 (u1 gives to u2), u2 owes u1 more -> balance increases.
         // If senderUid is u2 (u2 gives to u1), u2 owes u1 less -> balance decreases.
-        const balanceChange = req.senderUid === u1 ? req.amount : -req.amount;
+        const balanceChange = tx.senderUid === u1 ? tx.amount : -tx.amount;
         
         batch.set(debtRef, {
           id: debtId,
@@ -1138,14 +1179,32 @@ export const useStore = create<State>()((set, get) => ({
         }, { merge: true });
         
         // Update user stats
-        batch.update(doc(db, 'users', req.senderUid), { debtToMe: (get().users.find(u => u.id === req.senderUid)?.debtToMe || 0) + req.amount });
-        batch.update(doc(db, 'users', req.requesterUid), { debtOwed: (get().users.find(u => u.id === req.requesterUid)?.debtOwed || 0) + req.amount });
+        batch.update(doc(db, 'users', tx.senderUid), { debtToMe: (get().users.find(u => u.id === tx.senderUid)?.debtToMe || 0) + tx.amount });
+        batch.update(doc(db, 'users', tx.requesterUid), { debtOwed: (get().users.find(u => u.id === tx.requesterUid)?.debtOwed || 0) + tx.amount });
       }
 
       await batch.commit();
-      await logActivity('APPROVE_TRANSACTION', { requestId, txId }, currentUser.id, currentUser.username, 'Monitor Workspace');
+      await logActivity('ACCEPT_TRANSACTION', { transactionId }, currentUser.id, currentUser.username, 'Profile');
     } catch (error: any) {
-      handleFirestoreError(error, OperationType.WRITE, `transactions/${requestId}`);
+      handleFirestoreError(error, OperationType.WRITE, `transactions/${transactionId}`);
+      throw error;
+    }
+  },
+
+  cancelTransaction: async (transactionId) => {
+    const { currentUser, transactions, logActivity } = get();
+    if (!currentUser) throw new Error("UNAUTHENTICATED");
+
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx || tx.senderUid !== currentUser.id || tx.status !== 'pending_acceptance') {
+      throw new Error("Transaction not found or not pending acceptance");
+    }
+
+    try {
+      await updateDoc(doc(db, 'transactions', transactionId), { status: 'rejected' });
+      await logActivity('CANCEL_TRANSACTION', { transactionId }, currentUser.id, currentUser.username, 'Profile');
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.UPDATE, `transactions/${transactionId}`);
       throw error;
     }
   },
@@ -1399,6 +1458,374 @@ export const useStore = create<State>()((set, get) => ({
     await logActivity('DATA_CLEARED', `Master reset executed by ${currentUser.username}`, undefined, undefined, 'Master Data');
   },
 
+  executeGlobalPurge: async () => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || currentUser.role !== 'admin') throw new Error("UNAUTHORIZED");
+
+    const { getDocs, query, collection, writeBatch, doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+
+    // 1. GATHER BACKUP SNAPSHOT BEFORE PURGING ANYTHING
+    const backupData: any = {
+      transactionRequests: [],
+      transactions: [],
+      ratings: [],
+      chats: [],
+      complaints: [],
+      logs: [],
+      activity: []
+    };
+
+    const getCollectionDocs = async (collName: string) => {
+      try {
+        const snap = await getDocs(query(collection(db, collName)));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (err) {
+        console.warn(`Backup: Failed to read collection ${collName}:`, err);
+        return [];
+      }
+    };
+
+    // a. transactionRequests
+    backupData.transactionRequests = await getCollectionDocs('transactionRequests');
+
+    // b. transactions (including debts, adjustments, and rewards)
+    const txsList = await getCollectionDocs('transactions');
+    const debtsList = await getCollectionDocs('debts');
+    const debtAdjsList = await getCollectionDocs('debtAdjustments');
+    const rewardsList = await getCollectionDocs('rewards');
+    backupData.transactions = [
+      ...txsList.map(x => ({ ...x, _collection: 'transactions' })),
+      ...debtsList.map(x => ({ ...x, _collection: 'debts' })),
+      ...debtAdjsList.map(x => ({ ...x, _collection: 'debtAdjustments' })),
+      ...rewardsList.map(x => ({ ...x, _collection: 'rewards' }))
+    ];
+
+    // c. ratings
+    const ratingsList = await getCollectionDocs('ratings');
+    const txRatingsList = await getCollectionDocs('transactionRatings');
+    backupData.ratings = [
+      ...ratingsList.map(x => ({ ...x, _collection: 'ratings' })),
+      ...txRatingsList.map(x => ({ ...x, _collection: 'transactionRatings' }))
+    ];
+
+    // d. chats (including group posts and directMessages)
+    const chatsList = await getCollectionDocs('chats');
+    const directMsgsList = await getCollectionDocs('directMessages');
+    const groupPostsList: any[] = [];
+    const groupIds = ['studying', 'chatting', 'resolving', 'complaints', 'monitoring'];
+    for (const gid of groupIds) {
+      try {
+        const gSnap = await getDocs(query(collection(db, 'groups', gid, 'posts')));
+        gSnap.docs.forEach(d => {
+          groupPostsList.push({ id: d.id, groupId: gid, _collection: 'groupPosts', ...d.data() });
+        });
+      } catch (err) {
+        console.warn(`Backup group post error for group ${gid}:`, err);
+      }
+    }
+    backupData.chats = [
+      ...chatsList.map(x => ({ ...x, _collection: 'chats' })),
+      ...directMsgsList.map(x => ({ ...x, _collection: 'directMessages' })),
+      ...groupPostsList
+    ];
+
+    // e. complaints (including anonymous complaints, messages, and cases)
+    const complaintsList = await getCollectionDocs('complaints');
+    const anonymousCompls = await getCollectionDocs('anonymousComplaints');
+    const complaintMsgs = await getCollectionDocs('complaintMessages');
+    const resolvingDeck = await getCollectionDocs('resolvingDeck');
+    backupData.complaints = [
+      ...complaintsList.map(x => ({ ...x, _collection: 'complaints' })),
+      ...anonymousCompls.map(x => ({ ...x, _collection: 'anonymousComplaints' })),
+      ...complaintMsgs.map(x => ({ ...x, _collection: 'complaintMessages' })),
+      ...resolvingDeck.map(x => ({ ...x, _collection: 'resolvingDeck' }))
+    ];
+
+    // f. logs
+    const logsList = await getCollectionDocs('logs');
+    const systemLogsList = await getCollectionDocs('systemLogs');
+    const forgivenessLogsList = await getCollectionDocs('forgivenessLogs');
+    const specialOpsLogsList = await getCollectionDocs('specialOpsLogs');
+    backupData.logs = [
+      ...logsList.map(x => ({ ...x, _collection: 'logs' })),
+      ...systemLogsList.map(x => ({ ...x, _collection: 'systemLogs' })),
+      ...forgivenessLogsList.map(x => ({ ...x, _collection: 'forgivenessLogs' })),
+      ...specialOpsLogsList.map(x => ({ ...x, _collection: 'specialOpsLogs' }))
+    ];
+
+    // g. activity (including roleRequests, bills, comments, votes, announcements)
+    const activityList = await getCollectionDocs('activity');
+    const activityLogsList = await getCollectionDocs('activityLogs');
+    const roleReqs = await getCollectionDocs('roleRequests');
+    const billsList = await getCollectionDocs('bills');
+    const billCommentsList = await getCollectionDocs('billComments');
+    const billStaffCommentsList = await getCollectionDocs('billStaffComments');
+    const votesList = await getCollectionDocs('votes');
+    const announcementsList = await getCollectionDocs('announcements');
+    backupData.activity = [
+      ...activityList.map(x => ({ ...x, _collection: 'activity' })),
+      ...activityLogsList.map(x => ({ ...x, _collection: 'activityLogs' })),
+      ...roleReqs.map(x => ({ ...x, _collection: 'roleRequests' })),
+      ...billsList.map(x => ({ ...x, _collection: 'bills' })),
+      ...billCommentsList.map(x => ({ ...x, _collection: 'billComments' })),
+      ...billStaffCommentsList.map(x => ({ ...x, _collection: 'billStaffComments' })),
+      ...votesList.map(x => ({ ...x, _collection: 'votes' })),
+      ...announcementsList.map(x => ({ ...x, _collection: 'announcements' }))
+    ];
+
+    // Create system snapshot document in Firestore
+    const backupTimestamp = Date.now();
+    const backupDocId = `backup_${backupTimestamp}`;
+    await setDoc(doc(db, 'systemBackups', backupDocId), {
+      createdAt: serverTimestamp(),
+      createdBy: currentUser.id,
+      reason: "GLOBAL_PURGE",
+      data: backupData
+    });
+
+    // 2. NOW EXECUTE THE PURGE ACROSS COLLECTIONS
+    const collectionsToDelete = [
+      'transactions',
+      'transactionRequests',
+      'ratings',
+      'chats',
+      'directMessages',
+      'complaintMessages',
+      'complaints',
+      'anonymousComplaints',
+      'logs',
+      'activity',
+      'activityLogs',
+      'forgivenessLogs',
+      'specialOpsLogs',
+      'bills',
+      'billComments',
+      'billStaffComments',
+      'resolvingDeck',
+      'roleRequests',
+      'debtAdjustments',
+      'debts',
+      'votes',
+      'rewards',
+      'systemLogs'
+    ];
+
+    for (const collName of collectionsToDelete) {
+      try {
+        const q = query(collection(db, collName));
+        const snapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        snapshot.docs.forEach(d => {
+          batch.delete(d.ref);
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn(`Could not purge collection "${collName}":`, err);
+      }
+    }
+
+    // Clear Group Posts for all groupIds
+    for (const gid of groupIds) {
+      try {
+        const gq = query(collection(db, 'groups', gid, 'posts'));
+        const gSnapshot = await getDocs(gq);
+        const gBatch = writeBatch(db);
+        gSnapshot.docs.forEach(d => gBatch.delete(d.ref));
+        await gBatch.commit();
+      } catch (err) {
+        console.warn(`Could not purge posts of group "${gid}":`, err);
+      }
+    }
+
+    // Create entry in systemLogs
+    try {
+      const systemLogRef = doc(collection(db, 'systemLogs'));
+      const logBatch = writeBatch(db);
+      logBatch.set(systemLogRef, {
+        action: "GLOBAL_PURGE",
+        executedBy: currentUser.id,
+        timestamp: serverTimestamp()
+      });
+      await logBatch.commit();
+    } catch (err) {
+      console.error("Failed to log purge to systemLogs:", err);
+    }
+
+    await logActivity('GLOBAL_PURGE', `Emergency Purge Cycle executed by @${currentUser.username}`, undefined, undefined, 'Master Data');
+  },
+
+  rollbackSystem: async (backupId) => {
+    const { currentUser, logActivity } = get();
+    if (!currentUser || currentUser.role !== 'admin') throw new Error("UNAUTHORIZED");
+
+    const { getDoc, doc, writeBatch, collection, getDocs, query, setDoc } = await import('firebase/firestore');
+
+    const backupRef = doc(db, 'systemBackups', backupId);
+    const backupSnap = await getDoc(backupRef);
+    if (!backupSnap.exists()) {
+      throw new Error(`Rollback Source not found for "${backupId}"`);
+    }
+
+    const backupDoc = backupSnap.data();
+    const backupData = backupDoc.data;
+
+    // A. CLEAR CURRENT ACTIVE STATE COLLECTIONS
+    const collectionsToClear = [
+      'transactions',
+      'transactionRequests',
+      'ratings',
+      'chats',
+      'directMessages',
+      'complaintMessages',
+      'complaints',
+      'anonymousComplaints',
+      'logs',
+      'activity',
+      'activityLogs',
+      'forgivenessLogs',
+      'specialOpsLogs',
+      'bills',
+      'billComments',
+      'billStaffComments',
+      'resolvingDeck',
+      'roleRequests',
+      'debtAdjustments',
+      'debts',
+      'votes',
+      'rewards',
+      'systemLogs',
+      'announcements'
+    ];
+
+    for (const collName of collectionsToClear) {
+      try {
+        const q = query(collection(db, collName));
+        const snapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        snapshot.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      } catch (err) {
+        console.warn(`Rollback purge collection reference failed for "${collName}":`, err);
+      }
+    }
+
+    // Clear Group Posts for all groupIds
+    const groupIds = ['studying', 'chatting', 'resolving', 'complaints', 'monitoring'];
+    for (const gid of groupIds) {
+      try {
+        const gq = query(collection(db, 'groups', gid, 'posts'));
+        const gSnapshot = await getDocs(gq);
+        const gBatch = writeBatch(db);
+        gSnapshot.docs.forEach(d => gBatch.delete(d.ref));
+        await gBatch.commit();
+      } catch (err) {
+        console.warn(`Rollback posts clearing failed for group "${gid}":`, err);
+      }
+    }
+
+    // B. REWRITE BACKUP RECORDS TO FIREBASE PRESERVING ID INTEGRITY
+    const restoreRecord = async (collName: string, id: string, docData: any) => {
+      try {
+        const cleanData = { ...docData };
+        delete cleanData._collection;
+        delete cleanData.id;
+        delete cleanData.groupId;
+        await setDoc(doc(db, collName, id), cleanData);
+      } catch (err) {
+        console.error(`Rollback: Failed to write record ${id} to collection ${collName}:`, err);
+      }
+    };
+
+    const restoreGroupPost = async (groupId: string, id: string, docData: any) => {
+      try {
+        const cleanData = { ...docData };
+        delete cleanData._collection;
+        delete cleanData.id;
+        delete cleanData.groupId;
+        await setDoc(doc(db, "groups", groupId, "posts", id), cleanData);
+      } catch (err) {
+        console.error(`Rollback: Failed to write group post ${id} for group ${groupId}:`, err);
+      }
+    };
+
+    // 1. transactionRequests
+    if (Array.isArray(backupData.transactionRequests)) {
+      for (const rec of backupData.transactionRequests) {
+        if (rec.id) await restoreRecord('transactionRequests', rec.id, rec);
+      }
+    }
+
+    // 2. transactions combined list
+    if (Array.isArray(backupData.transactions)) {
+      for (const rec of backupData.transactions) {
+        const targetColl = rec._collection || 'transactions';
+        if (rec.id) await restoreRecord(targetColl, rec.id, rec);
+      }
+    }
+
+    // 3. ratings combined list
+    if (Array.isArray(backupData.ratings)) {
+      for (const rec of backupData.ratings) {
+        const targetColl = rec._collection || 'ratings';
+        if (rec.id) await restoreRecord(targetColl, rec.id, rec);
+      }
+    }
+
+    // 4. chats combined and groupPosts list
+    if (Array.isArray(backupData.chats)) {
+      for (const rec of backupData.chats) {
+        if (rec._collection === 'groupPosts') {
+          if (rec.id && rec.groupId) {
+            await restoreGroupPost(rec.groupId, rec.id, rec);
+          }
+        } else {
+          const targetColl = rec._collection || 'chats';
+          if (rec.id) await restoreRecord(targetColl, rec.id, rec);
+        }
+      }
+    }
+
+    // 5. complaints combined list
+    if (Array.isArray(backupData.complaints)) {
+      for (const rec of backupData.complaints) {
+        const targetColl = rec._collection || 'complaints';
+        if (rec.id) await restoreRecord(targetColl, rec.id, rec);
+      }
+    }
+
+    // 6. logs combined list
+    if (Array.isArray(backupData.logs)) {
+      for (const rec of backupData.logs) {
+        const targetColl = rec._collection || 'logs';
+        if (rec.id) await restoreRecord(targetColl, rec.id, rec);
+      }
+    }
+
+    // 7. activity combined list
+    if (Array.isArray(backupData.activity)) {
+      for (const rec of backupData.activity) {
+        const targetColl = rec._collection || 'activity';
+        if (rec.id) await restoreRecord(targetColl, rec.id, rec);
+      }
+    }
+
+    // Create system log for rollback
+    try {
+      const { serverTimestamp } = await import('firebase/firestore');
+      const systemLogRef = doc(collection(db, 'systemLogs'));
+      await setDoc(systemLogRef, {
+        action: "GLOBAL_ROLLBACK",
+        executedBy: currentUser.id,
+        backupRestoreId: backupId,
+        timestamp: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to log rollback to systemLogs:", err);
+    }
+
+    await logActivity('GLOBAL_ROLLBACK', `System rolled back to snapshot ${backupId} by @${currentUser.username}`, undefined, undefined, 'Master Data');
+  },
+
   issueWarning: async (username, level, reason) => {
     const { currentUser, users, logActivity, warningRules } = get();
     if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) return;
@@ -1528,14 +1955,14 @@ export const useStore = create<State>()((set, get) => ({
     try {
       const { transactions, forgivenessLogs, users } = get();
       
-      const approvedTx = transactions.filter(t => t.status === 'approved' || t.status === 'completed' || t.status === 'active' || t.status === 'awaiting_rating');
-      const approvedCS = approvedTx.filter(t => t.isCommunityService);
+      const approvedTx = transactions.filter(t => t.status === 'completed' || t.status === 'active' || t.status === 'awaiting_rating' || t.status === 'pending_acceptance');
+      const approvedCS = approvedTx.filter(t => t.freeWork);
       
       // Community Carer
       const carerMap: Record<string, number> = {};
       approvedCS.forEach(t => {
-        const sender = t.senderUid || t.senderId;
-        const amt = t.amount || t.debt || 0;
+        const sender = t.senderUid;
+        const amt = t.amount || 0;
         if (sender) carerMap[sender] = (carerMap[sender] || 0) + amt;
       });
       forgivenessLogs.forEach(f => {
@@ -1544,9 +1971,9 @@ export const useStore = create<State>()((set, get) => ({
       
       // Compute weighted reputation score for all users
       const userScores = users.map(u => {
-        const userCompletedTx = transactions.filter(t => (t.senderId === u.id || t.senderUid === u.id) && t.status === 'completed');
-        const userActiveTx = transactions.filter(t => (t.senderId === u.id || t.senderUid === u.id) && t.status === 'active');
-        const userAwaitingRatingTx = transactions.filter(t => (t.senderId === u.id || t.senderUid === u.id) && t.status === 'awaiting_rating');
+        const userCompletedTx = transactions.filter(t => t.senderUid === u.id && t.status === 'completed');
+        const userActiveTx = transactions.filter(t => t.senderUid === u.id && t.status === 'active');
+        const userAwaitingRatingTx = transactions.filter(t => t.senderUid === u.id && t.status === 'awaiting_rating');
         
         const completedCount = userCompletedTx.length;
         const totalCount = completedCount + userActiveTx.length + userAwaitingRatingTx.length;
@@ -1569,17 +1996,18 @@ export const useStore = create<State>()((set, get) => ({
         };
       });
 
-      // Find top sender according to Sender Score
+      // Find top sender according to Completed Count (Sender of the Month)
       let topSenderId: string | null = null;
-      let maxSenderScore = -999;
-      userScores.forEach(us => {
-        if (us.score > maxSenderScore) {
-          maxSenderScore = us.score;
-          topSenderId = us.id;
+      let maxCompleted = 0;
+      users.forEach(u => {
+        const completedCount = transactions.filter(t => t.senderUid === u.id && t.status === 'completed').length;
+        if (completedCount > maxCompleted) {
+          maxCompleted = completedCount;
+          topSenderId = u.id;
         }
       });
 
-      // Find tops
+      // Find tops for Community Carer
       let topCarerId: string | null = null;
       let maxCarer = 0;
       Object.entries(carerMap).forEach(([uid, val]) => {
@@ -1589,15 +2017,26 @@ export const useStore = create<State>()((set, get) => ({
         }
       });
 
-      // Best Rating
+      // Best Rating (Minimum rating threshold)
       let topRatingId: string | null = null;
       let maxRating = 0;
       users.forEach(u => {
-        if (u.ratingCount > 0 && u.ratingAverage > maxRating) {
+        const count = u.ratingCount || 0;
+        if (count >= 2 && u.ratingAverage > maxRating) {
           maxRating = u.ratingAverage;
           topRatingId = u.id;
         }
       });
+      // Fallback to u.ratingCount >= 1 if no user has >= 2 rating count
+      if (!topRatingId) {
+        users.forEach(u => {
+          const count = u.ratingCount || 0;
+          if (count >= 1 && u.ratingAverage > maxRating) {
+            maxRating = u.ratingAverage;
+            topRatingId = u.id;
+          }
+        });
+      }
 
       const topSenderUser = users.find(u => u.id === topSenderId);
 
@@ -1615,7 +2054,7 @@ export const useStore = create<State>()((set, get) => ({
         senderOfTheMonth: topSenderId ? {
           userId: topSenderId,
           username: topSenderUser?.username || 'Unknown',
-          totalDebts: Number(maxSenderScore.toFixed(2))
+          totalDebts: maxCompleted
         } : null,
         updatedAt: new Date().toISOString()
       };
@@ -2759,6 +3198,15 @@ onAuthStateChanged(auth, async (firebaseUser) => {
           try {
             if (docSnap.exists()) {
               const data = docSnap.data() as UserProfile;
+              const email = (data.email || firebaseUser.email || '').toLowerCase();
+              const isBootstrapAdmin = bootstrapAdmins.includes(email) || firebaseUser.uid === 'K7MRkBbJtdSapnLfw2giwLzmhwA3';
+              
+              if (isBootstrapAdmin && data.role !== 'admin') {
+                console.log(`[BOOTSTRAP_ADMIN] Auto-syncing admin status for ${email}`);
+                await updateDoc(docRef, { role: 'admin' });
+                return;
+              }
+
               // STRICT ROLE CONTROL: Role is now a field on the user document
               const calculatedRole = (data.role?.toLowerCase() as UserRole) || 'user';
               
@@ -2889,7 +3337,10 @@ onAuthStateChanged(auth, async (firebaseUser) => {
                       console.log("Validation listener active");
                       console.log("Pending requests:", snapshot.docs.length);
                       useStore.setState({ pendingAccountRequests: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PendingAccountRequest)) });
-                    }, (err) => console.warn("Admin Listener - PendingAccountRequests Denied:", err.message))
+                    }, (err) => console.warn("Admin Listener - PendingAccountRequests Denied:", err.message)),
+                    onSnapshot(query(collection(db, 'systemBackups')), (snapshot) => {
+                      useStore.setState({ systemBackups: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any)) });
+                    }, (err) => console.warn("Admin Listener - systemBackups Denied:", err.message))
                   );
                 }
               }
@@ -2897,7 +3348,6 @@ onAuthStateChanged(auth, async (firebaseUser) => {
               // AUTO-PROVISION if document missing
               const email = (firebaseUser.email || '').toLowerCase();
               const usernameFromEmail = email.split('@')[0] || 'user';
-              const bootstrapAdmins = ['patty@debtflow.com', 'chiti@debtflow.com', 'simbaplayzofficial@gmail.com', 'simba@debtflow.com'];
               const isBootstrapAdmin = bootstrapAdmins.includes(email);
               
               const { serverTimestamp } = await import('firebase/firestore');
@@ -2999,9 +3449,9 @@ onAuthStateChanged(auth, async (firebaseUser) => {
         onSnapshot(query(collection(db, 'transactionRequests'), where('status', '==', 'pending')), (snapshot) => {
           useStore.setState({ transactionRequests: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as TransactionRequest)) });
         }, errorHandler('TransactionRequests')),
-        onSnapshot(collection(db, 'transactionRatings'), (snapshot) => {
-          useStore.setState({ transactionRatings: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as TransactionRating)) });
-        }, errorHandler('TransactionRatings'))
+        onSnapshot(collection(db, 'ratings'), (snapshot) => {
+          useStore.setState({ ratings: snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Rating)) });
+        }, errorHandler('Ratings'))
       );
 
       // 4. Public Group Listeners

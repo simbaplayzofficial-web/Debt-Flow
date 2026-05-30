@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useStore, Transaction, TransactionType, UserRole } from "../store";
+import { useStore, Transaction, UserRole } from "../store";
 import {
   History,
   Wallet,
@@ -133,14 +133,23 @@ export default function Profile() {
            (t.status === "awaiting_rating"),
   );
 
+  // Acceptances for me as Sender (Counterparty)
+  const pendingAcceptances = transactions.filter(
+    (t) => (t.senderUid === currentUser?.id) && 
+           (t.status === "pending_acceptance"),
+  );
+
   const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser || !targetAskerId || isSubmitting) return;
 
     setTxError(null);
     setIsSubmitting(true);
+    
+    const calculatedAmount = isCommunityServiceTx ? 0 : calculateDebt(pages);
+
     try {
-      await recordTransaction(targetAskerId, txAmount, pages, txReason, isCommunityServiceTx);
+      await recordTransaction(targetAskerId, calculatedAmount, pages, txReason, isCommunityServiceTx);
       
       setShowAddModal(false);
       setPages(0);
@@ -551,6 +560,69 @@ export default function Profile() {
               </button>
             </div>
 
+            {/* Pending acceptances for Sender (Accept/Reject Popup) */}
+            {pendingAcceptances.length > 0 && (
+              <div className="mb-8 space-y-4">
+                <h3 className="text-xs font-bold text-yellow-500 uppercase tracking-widest flex items-center gap-2">
+                  <AlertTriangle size={14} />
+                  Pending Transaction Acceptances (Counterparty)
+                </h3>
+                {pendingAcceptances.map((tx) => (
+                  <div
+                    key={tx.id}
+                    className="bg-yellow-500/5 border border-yellow-500/20 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-bold text-neutral-100">
+                          Transfer of {tx.pages} pages to @{users.find((u) => u.id === tx.requesterUid)?.username || "Operational Associate"}?
+                        </p>
+                        {tx.freeWork && (
+                          <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
+                            FREE
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-neutral-500 mt-1">
+                        Reason: {tx.reason || "Unspecified"}
+                      </p>
+                      <p className="text-sm font-bold text-yellow-500 mt-2">
+                        {tx.freeWork ? "0 (FREE)" : `${tx.amount} DB`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await useStore.getState().acceptTransaction(tx.id);
+                          } catch (err: any) {
+                            alert(`Failed to accept: ${err.message}`);
+                          }
+                        }}
+                        className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-neutral-950 text-xs font-bold rounded-xl transition-all shadow-lg shadow-yellow-500/10"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            if (confirm("Are you sure you want to decline this transaction request?")) {
+                              await useStore.getState().cancelTransaction(tx.id);
+                            }
+                          } catch (err: any) {
+                            alert(`Failed to decline: ${err.message}`);
+                          }
+                        }}
+                        className="px-4 py-2 bg-neutral-800 hover:bg-red-500/10 hover:text-red-500 text-neutral-400 text-xs font-bold rounded-xl transition-all"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Pending actions for Asker (Rating Prompt) */}
             {pendingRatings.length > 0 && (
               <div className="mb-8 space-y-4">
@@ -702,7 +774,7 @@ export default function Profile() {
                       <div>
                         <p className="text-sm font-bold text-neutral-200">
                           Transfer of {tx.pages} pages
-                          {tx.isCommunityService && (
+                          {tx.freeWork && (
                             <span className="ml-2 text-[8px] text-blue-500 font-bold border border-blue-500/30 px-1 rounded">
                               CS
                             </span>
@@ -710,15 +782,15 @@ export default function Profile() {
                         </p>
                          <p className="text-[10px] text-neutral-500 flex flex-wrap items-center gap-2 mt-1">
                            <span>
-                             {tx.senderId === currentUser?.id || tx.senderUid === currentUser?.id
-                               ? `Lended work to @${users.find((u) => u.id === tx.askerId || u.id === tx.requesterUid)?.username || "Operational Associate"}`
-                               : `Received work from @${users.find((u) => u.id === tx.senderId || u.id === tx.senderUid)?.username || "Operational Associate"}`}
+                             {tx.senderUid === currentUser?.id
+                               ? `Lended work to @${users.find((u) => u.id === tx.requesterUid)?.username || "Operational Associate"}`
+                               : `Received work from @${users.find((u) => u.id === tx.senderUid)?.username || "Operational Associate"}`}
                            </span>
                            <span
                              className={`uppercase font-black px-1 rounded text-[8px] ${
-                               tx.status === "pending"
-                                 ? "bg-amber-500/10 text-amber-500"
-                                 : tx.status === "approved" || tx.status === "active"
+                               tx.status === "pending_acceptance"
+                                 ? "bg-amber-500/10 text-amber-500 animate-pulse"
+                                 : tx.status === "active"
                                    ? "bg-blue-500/10 text-blue-400"
                                    : tx.status === "awaiting_rating"
                                      ? "bg-orange-500/10 text-orange-400 animate-pulse font-black"
@@ -954,7 +1026,7 @@ export default function Profile() {
               {transactions
                 .filter(
                   (t) =>
-                    t.senderId === currentUser?.id && t.status === "completed",
+                    t.senderUid === currentUser?.id && t.status === "completed",
                 )
                 .slice(0, 3)
                 .map((tx) => (
@@ -964,8 +1036,8 @@ export default function Profile() {
                   >
                     <div>
                       <p className="text-sm font-bold text-neutral-200">
-                        {users.find((u) => u.id === tx.askerId)?.username}{" "}
-                        repaid you {tx.debt} DB
+                        {users.find((u) => u.id === tx.requesterUid)?.username}{" "}
+                        repaid you {tx.amount} DB
                       </p>
                       <p className="text-[10px] text-neutral-500 italic mt-0.5">
                         Recorded on{" "}
@@ -984,7 +1056,7 @@ export default function Profile() {
                 ))}
               {transactions.filter(
                 (t) =>
-                  t.senderId === currentUser?.id && t.status === "completed",
+                  t.senderUid === currentUser?.id && t.status === "completed",
               ).length === 0 && (
                 <div className="bg-neutral-900/50 border border-neutral-800 border-dashed p-6 rounded-2xl text-center text-neutral-600 text-xs">
                   No debtors to forgive currently.
