@@ -122,61 +122,41 @@ export type Warning = {
   timestamp: any;
 };
 
-export type TransactionStatus = 'pending' | 'approved' | 'rejected' | 'completed' | 'cancelled';
-
-export type TransactionType = 'lend' | 'pay';
-
-export type Transaction = {
-  id: string;
-  senderId: string;
-  askerId: string;
-  requesterUid?: string;
-  senderUid?: string;
-  type?: string;
-  amount?: number;
-  pages: number;
-  debt: number;
-  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'active' | 'awaiting_rating';
-  isCommunityService: boolean;
-  rating?: number;
-  validatedBy?: string; // monitor username
-  validatedAt?: string; // ISO timestamp
-  createdAt: any;
-  approvedBy?: string;
-  active?: boolean;
-  completed?: boolean;
-  repaymentStatus?: string;
-  reason?: string;
-  deadline?: string;
-};
+export type TransactionStatus = 'pending' | 'approved' | 'rejected' | 'active' | 'awaiting_rating' | 'completed';
 
 export type TransactionRequest = {
   id: string;
   requesterUid: string;
-  askerId?: string;
   senderUid: string;
-  senderId?: string;
-  type?: string; // debt request, work request, repayment, lending, operational tasks
-  amount?: number;
-  pages?: number;
-  debt?: number;
-  reason?: string;
-  deadline?: string;
-  isCommunityService?: boolean;
-  status: 'pending' | 'approved' | 'rejected' | 'active' | 'completed' | 'archived';
+  amount: number;
+  pages: number;
+  reason: string;
+  freeWork: boolean;
+  status: 'pending' | 'approved' | 'rejected';
   createdAt: any;
-  reviewedBy?: string;
-  reviewedAt?: string;
-  verdict?: string;
 };
 
-export type TransactionRating = {
+export type Transaction = {
+  id: string;
+  senderUid: string;
+  requesterUid: string;
+  amount: number;
+  pages: number;
+  reason: string;
+  freeWork: boolean;
+  status: 'active' | 'awaiting_rating' | 'completed';
+  createdAt: any;
+  approvedBy?: string;
+  rating?: number;
+};
+
+export type Rating = {
   id: string;
   transactionId: string;
-  ratedUserUid: string;
-  ratedByUid: string;
+  senderUid: string;
+  requesterUid: string;
   stars: number;
-  review: string;
+  review?: string;
   createdAt: any;
 };
 
@@ -457,7 +437,6 @@ type State = {
   currentUser: UserProfile | null;
   users: UserProfile[];
   debts: NetDebt[];
-  transactions: Transaction[];
   announcements: Announcement[];
   complaints: Complaint[];
   complaintMessages: ComplaintMessage[];
@@ -491,7 +470,8 @@ type State = {
   billStaffComments: BillStaffComment[];
   warningRules: WarningRule[];
   transactionRequests: TransactionRequest[];
-  transactionRatings: TransactionRating[];
+  transactions: Transaction[];
+  ratings: Rating[];
   
   isLoading: boolean;
   authError: string | null;
@@ -502,14 +482,11 @@ type State = {
   logout: () => Promise<void>;
   
   // Core Actions
-  addTransaction: (askerId: string, pages: number, isCommunityService: boolean) => Promise<string | void>;
-  submitRating: (txId: string, rating: number) => Promise<void>;
-  forgiveDebt: (borrowerId: string, amount: number) => Promise<void>;
-  createTransactionRequest: (requesterUid: string, senderUid: string, type: string, amount: number, reason: string, deadline?: string) => Promise<string>;
+  recordTransaction: (senderUid: string, amount: number, pages: number, reason: string, freeWork: boolean) => Promise<string>;
   approveTransactionRequest: (requestId: string, verdict: string) => Promise<void>;
   rejectTransactionRequest: (requestId: string, verdict: string) => Promise<void>;
-  completeTransactionWork: (transactionId: string) => Promise<void>;
-  submitTransactionRating: (transactionId: string, stars: number, review: string) => Promise<void>;
+  completeTransaction: (transactionId: string) => Promise<void>;
+  submitRating: (transactionId: string, senderUid: string, requesterUid: string, stars: number, review: string) => Promise<void>;
   calculateNetLedger: (userId: string) => {
     incomingOwed: number;
     outgoingOwed: number;
@@ -597,7 +574,6 @@ export const useStore = create<State>()((set, get) => ({
   currentUser: null,
   users: [],
   debts: [],
-  transactions: [],
   announcements: [],
   complaints: [],
   complaintMessages: [],
@@ -628,7 +604,8 @@ export const useStore = create<State>()((set, get) => ({
   billComments: [],
   billStaffComments: [],
   transactionRequests: [],
-  transactionRatings: [],
+  transactions: [],
+  ratings: [],
   warningRules: [
     { level: 1, penalty: 'Official warning registered', integrityDeduction: 5 },
     { level: 2, penalty: 'Mandatory community service', integrityDeduction: 15 },
@@ -1017,49 +994,24 @@ export const useStore = create<State>()((set, get) => ({
     set({ currentUser: null, specialOpsMode: false });
   },
 
-  addTransaction: async (askerId, pages, isCommunityService) => {
-    const { currentUser, users, calculateDebt, logActivity, calculateNetLedger } = get();
+  recordTransaction: async (senderUid, amount, pages, reason, freeWork) => {
+    const { currentUser, logActivity } = get();
     if (!currentUser) throw new Error("UNAUTHORIZED");
 
-    const asker = users.find(u => u.id === askerId);
-    if (!asker) throw new Error("USER_NOT_FOUND");
-    
-    const pagesNum = Number(pages) || 0;
-    const debt = isCommunityService ? 0 : calculateDebt(pagesNum);
-
-    if (!isCommunityService) {
-      const askerLedger = calculateNetLedger(askerId);
-      const projectedLedger = askerLedger.netLedger - debt;
-      if (projectedLedger < -10) {
-        await logActivity('DEBT_LIMIT_REACHED', {
-          targetUserId: askerId,
-          targetUsername: asker.username,
-          debtAttempted: debt,
-          currentLedger: askerLedger.netLedger,
-          projectedLedger,
-          description: `@${asker.username} reached the debt limit. Blocked request of ${debt} DB.`
-        }, currentUser.id, currentUser.username, 'Profile', 'Profile');
-        throw new Error(`Debt limit reached. @${asker.username} cannot go below -10 on Net Ledger (Projected: ${projectedLedger}).`);
-      }
-    }
-    
     try {
       const requestData = {
-        requesterUid: askerId,
-        askerId: askerId,
-        senderUid: currentUser.id,
-        senderId: currentUser.id,
-        pages: pagesNum,
-        debt,
-        amount: debt,
+        requesterUid: currentUser.id,
+        senderUid,
+        amount,
+        pages,
+        reason,
+        freeWork,
         status: 'pending',
-        isCommunityService,
         createdAt: serverTimestamp(),
-        timestamp: serverTimestamp()
       };
       
       const docRef = await addDoc(collection(db, 'transactionRequests'), requestData);
-      await logActivity('CREATE_TRANSACTION_REQUEST', { requestId: docRef.id, pages: pagesNum, debt, asker: asker.username }, undefined, undefined, 'Profile');
+      await logActivity('CREATE_TRANSACTION_REQUEST', { requestId: docRef.id, amount, pages, reason, freeWork }, currentUser.id, currentUser.username, 'Profile');
       return docRef.id;
     } catch (error: any) {
       handleFirestoreError(error, OperationType.CREATE, 'transactionRequests');
@@ -1132,115 +1084,68 @@ export const useStore = create<State>()((set, get) => ({
   },
 
   approveTransactionRequest: async (requestId, verdict) => {
-    const { currentUser, logActivity, users, transactionRequests, calculateNetLedger } = get();
+    const { currentUser, logActivity, transactionRequests } = get();
     if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) {
       throw new Error("UNAUTHORIZED");
     }
 
     const req = transactionRequests.find(r => r.id === requestId);
-    if (!req) throw new Error("Request not found");
-    if (req.status !== 'pending') throw new Error("Request is not pending validation");
-
-    const isCommunityService = req.isCommunityService || req.type === 'operational tasks' || false;
-    const reqAmount = isCommunityService ? 0 : (req.debt ?? req.amount ?? 0);
-    const pagesVal = req.pages ?? 0;
-
-    const requesterUid = req.requesterUid || req.askerId;
-    const senderUid = req.senderUid || req.senderId;
-
-    if (!isCommunityService && requesterUid) {
-      const ledger = calculateNetLedger(requesterUid);
-      const projected = ledger.netLedger - reqAmount;
-      if (projected < -10) {
-        throw new Error(`Debt limit reached. Borrower would go below -10 on Net Ledger (Projected: ${projected}).`);
-      }
-    }
+    if (!req || req.status !== 'pending') throw new Error("Request not found or not pending");
 
     try {
       const batch = writeBatch(db);
 
-      const reqRef = doc(db, 'transactionRequests', requestId);
-      batch.update(reqRef, {
+      // 1. Update Request
+      batch.update(doc(db, 'transactionRequests', requestId), {
         status: 'approved',
-        reviewedBy: currentUser.username,
-        reviewedAt: new Date().toISOString(),
-        verdict: verdict || "Approved by Council"
       });
 
+      // 2. Create TransactionNode
       const txId = uuidv4();
-      const txRef = doc(db, 'transactions', txId);
-      
-      const txData = {
+      batch.set(doc(db, 'transactions', txId), {
         id: txId,
-        senderId: senderUid,
-        askerId: requesterUid,
-        senderUid: senderUid,
-        requesterUid: requesterUid,
-        pages: pagesVal,
-        debt: reqAmount,
-        amount: reqAmount,
-        type: req.type || (isCommunityService ? 'operational tasks' : 'work request'),
+        senderUid: req.senderUid,
+        requesterUid: req.requesterUid,
+        amount: req.amount,
+        pages: req.pages,
+        reason: req.reason,
+        freeWork: req.freeWork,
         status: 'active',
-        isCommunityService,
         createdAt: serverTimestamp(),
-        timestamp: serverTimestamp(),
-        approvedBy: currentUser.username,
-        active: true,
-        completed: false,
-        repaymentStatus: 'pending',
-        requestId: req.id,
-        reason: req.reason || `Transaction of ${pagesVal} pages`,
-        deadline: req.deadline || ""
-      };
-      batch.set(txRef, txData);
+      });
 
-      if (senderUid && requesterUid) {
-        const u1 = senderUid < requesterUid ? senderUid : requesterUid;
-        const u2 = senderUid < requesterUid ? requesterUid : senderUid;
+      // 3. Update Ledger (if NOT freeWork)
+      if (!req.freeWork) {
+        const u1 = req.senderUid < req.requesterUid ? req.senderUid : req.requesterUid;
+        const u2 = req.senderUid < req.requesterUid ? req.requesterUid : req.senderUid;
         const debtId = `${u1}_${u2}`;
         const debtRef = doc(db, 'debts', debtId);
         
         const currentDebtDoc = get().debts.find(d => d.id === debtId);
         const currentBalance = currentDebtDoc ? currentDebtDoc.netBalance : 0;
-        const balanceChange = senderUid === u1 ? reqAmount : -reqAmount;
-        const newBalance = currentBalance + balanceChange;
-
+        
+        // Sender (lender) gives work, requester (borrower) receives.
+        // If senderUid is u1 (u1 gives to u2), u2 owes u1 more -> balance increases.
+        // If senderUid is u2 (u2 gives to u1), u2 owes u1 less -> balance decreases.
+        const balanceChange = req.senderUid === u1 ? req.amount : -req.amount;
+        
         batch.set(debtRef, {
           id: debtId,
           user1Id: u1,
           user2Id: u2,
-          netBalance: newBalance,
+          netBalance: currentBalance + balanceChange,
           updatedAt: new Date().toISOString()
         }, { merge: true });
-
-        const senderUser = users.find(u => u.id === senderUid);
-        const requesterUser = users.find(u => u.id === requesterUid);
-        if (senderUser) {
-          batch.update(doc(db, 'users', senderUser.id), {
-            debtToMe: (senderUser.debtToMe || 0) + reqAmount
-          });
-        }
-        if (requesterUser) {
-          batch.update(doc(db, 'users', requesterUser.id), {
-            debtOwed: (requesterUser.debtOwed || 0) + reqAmount
-          });
-        }
+        
+        // Update user stats
+        batch.update(doc(db, 'users', req.senderUid), { debtToMe: (get().users.find(u => u.id === req.senderUid)?.debtToMe || 0) + req.amount });
+        batch.update(doc(db, 'users', req.requesterUid), { debtOwed: (get().users.find(u => u.id === req.requesterUid)?.debtOwed || 0) + req.amount });
       }
 
       await batch.commit();
-
-      const { recalculateLeaderboard } = get();
-      await recalculateLeaderboard();
-
-      await logActivity('APPROVE_TRANSACTION_REQUEST', {
-        requestId,
-        txId,
-        amount: reqAmount,
-        verdict
-      }, currentUser.id, currentUser.username, 'Monitor Workspace');
-
+      await logActivity('APPROVE_TRANSACTION', { requestId, txId }, currentUser.id, currentUser.username, 'Monitor Workspace');
     } catch (error: any) {
-      handleFirestoreError(error, OperationType.WRITE, `transactionRequests/${requestId}`);
+      handleFirestoreError(error, OperationType.WRITE, `transactions/${requestId}`);
       throw error;
     }
   },
@@ -1252,80 +1157,47 @@ export const useStore = create<State>()((set, get) => ({
     }
 
     const req = transactionRequests.find(r => r.id === requestId);
-    if (!req) throw new Error("Request not found");
-    if (req.status !== 'pending') throw new Error("Request is not pending validation");
+    if (!req || req.status !== 'pending') throw new Error("Request not found or not pending");
 
     try {
-      await updateDoc(doc(db, 'transactionRequests', requestId), {
-        status: 'rejected',
-        reviewedBy: currentUser.username,
-        reviewedAt: new Date().toISOString(),
-        verdict: verdict || "Rejected by Council"
-      });
-
-      await logActivity('REJECT_TRANSACTION_REQUEST', {
-        requestId,
-        verdict
-      }, currentUser.id, currentUser.username, 'Monitor Workspace');
+      await updateDoc(doc(db, 'transactionRequests', requestId), { status: 'rejected' });
+      await logActivity('REJECT_TRANSACTION_REQUEST', { requestId }, currentUser.id, currentUser.username, 'Monitor Workspace');
     } catch (error: any) {
       handleFirestoreError(error, OperationType.UPDATE, `transactionRequests/${requestId}`);
       throw error;
     }
   },
 
-  completeTransactionWork: async (transactionId) => {
+  completeTransaction: async (transactionId) => {
     const { currentUser, logActivity, transactions } = get();
     if (!currentUser) throw new Error("UNAUTHENTICATED");
 
     const tx = transactions.find(t => t.id === transactionId);
-    if (!tx) throw new Error("Transaction not found");
-    if (tx.senderId !== currentUser.id && tx.senderUid !== currentUser.id) {
-      throw new Error("Only the transaction sender can mark work as completed");
-    }
-
-    if (tx.status !== 'active' && tx.status !== 'approved') {
-      throw new Error("Transaction is not active");
-    }
+    if (!tx || tx.senderUid !== currentUser.id) throw new Error("Only the sender can mark work as completed");
 
     try {
-      await updateDoc(doc(db, 'transactions', transactionId), {
-        status: 'awaiting_rating'
-      });
-
-      await logActivity('COMPLETE_TRANSACTION_WORK', {
-        transactionId
-      }, currentUser.id, currentUser.username, 'Profile');
+      await updateDoc(doc(db, 'transactions', transactionId), { status: 'awaiting_rating' });
+      await logActivity('COMPLETE_TRANSACTION', { transactionId }, currentUser.id, currentUser.username, 'Profile');
     } catch (error: any) {
       handleFirestoreError(error, OperationType.UPDATE, `transactions/${transactionId}`);
       throw error;
     }
   },
 
-  submitTransactionRating: async (transactionId, stars, review) => {
-    const { currentUser, logActivity, transactions, users } = get();
+  submitRating: async (transactionId, senderUid, requesterUid, stars, review) => {
+    const { currentUser, logActivity } = get();
     if (!currentUser) throw new Error("UNAUTHENTICATED");
-
-    const tx = transactions.find(t => t.id === transactionId);
-    if (!tx) throw new Error("Transaction not found");
-
-    if (tx.askerId !== currentUser.id && tx.requesterUid !== currentUser.id) {
-      throw new Error("Only the requester can rate this transaction");
-    }
-
-    const senderUid = tx.senderUid || tx.senderId;
 
     try {
       const batch = writeBatch(db);
-
       const ratingId = uuidv4();
-      const ratingRef = doc(db, 'transactionRatings', ratingId);
-      batch.set(ratingRef, {
+      batch.set(doc(db, 'ratings', ratingId), {
         id: ratingId,
         transactionId,
-        ratedUserUid: senderUid,
-        ratedByUid: currentUser.id,
+        senderUid,
+        requesterUid,
         stars,
-        review,
+        review: review || "",
         createdAt: serverTimestamp()
       });
 
@@ -1334,29 +1206,14 @@ export const useStore = create<State>()((set, get) => ({
         rating: stars
       });
 
-      const ratingsForSender = get().transactionRatings.filter(r => r.ratedUserUid === senderUid);
-      const newCount = ratingsForSender.length + 1;
-      const totalStars = ratingsForSender.reduce((acc, r) => acc + r.stars, 0) + stars;
-      const averageValue = totalStars / newCount;
-
-      batch.update(doc(db, 'users', senderUid), {
-        ratingAverage: averageValue,
-        ratingCount: newCount
-      });
-
       await batch.commit();
-
+      
       const { recalculateLeaderboard } = get();
       await recalculateLeaderboard();
 
-      await logActivity('RATE_TRANSACTION_WORK', {
-        transactionId,
-        stars,
-        review
-      }, currentUser.id, currentUser.username, 'Profile');
-
+      await logActivity('RATE_TRANSACTION', { transactionId, stars }, currentUser.id, currentUser.username, 'Profile');
     } catch (error: any) {
-      handleFirestoreError(error, OperationType.WRITE, `transactions/${transactionId}/rating`);
+      handleFirestoreError(error, OperationType.WRITE, `ratings/${transactionId}`);
       throw error;
     }
   },

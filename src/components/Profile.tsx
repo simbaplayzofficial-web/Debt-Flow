@@ -32,7 +32,7 @@ export default function Profile() {
     currentUser,
     users,
     transactions,
-    addTransaction,
+    recordTransaction,
     issueWarning,
     postAnnouncement,
     activityLogs,
@@ -140,25 +140,14 @@ export default function Profile() {
     setTxError(null);
     setIsSubmitting(true);
     try {
-      const pagesNum = Number(pages) || 0;
-      const debt = isCommunityServiceTx ? 0 : calculateDebt(pagesNum);
-
-      if (!isCommunityServiceTx) {
-        const ledger = calculateNetLedger(targetAskerId);
-        const projected = ledger.netLedger - debt;
-        if (projected < -10) {
-          setTxError(`Action Blocked: Borrower will exceed debt limit of -10! Projected: ${projected} DB.`);
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      await addTransaction(targetAskerId, pagesNum, isCommunityServiceTx);
+      await recordTransaction(targetAskerId, txAmount, pages, txReason, isCommunityServiceTx);
       
       setShowAddModal(false);
       setPages(0);
       setIsCommunityServiceTx(false);
       setTargetAskerId("");
+      setTxAmount(1);
+      setTxReason("");
     } catch (err: any) {
       console.error("Submission UI Error:", err);
       setTxError(err.message || "Failed to record transaction request.");
