@@ -24,8 +24,7 @@ import {
   Video,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { BlackBox } from "./BlackBox";
-import { AnonymousChatTerminal } from "./AnonymousChatTerminal";
+import { ComplaintBox } from "./ComplaintBox";
 
 export default function Profile() {
   const {
@@ -1172,109 +1171,11 @@ export default function Profile() {
             </section>
           )}
 
-          {/* Profile Black Box Form */}
+          {/* Consolidated Complaint Box Component */}
           <section className="pt-6 border-t border-neutral-800">
-            <h2 className="text-md font-bold uppercase tracking-widest text-neutral-500 mb-6 flex items-center gap-2">
-              <Lock size={16} className="text-amber-500" />
-              Private Grievance Link
-            </h2>
-            <BlackBox source="profile_blackbox" />
+            <ComplaintBox />
           </section>
 
-          {/* Anonymous Complaint Threads / Correspondence Section */}
-          <section className="pt-6 border-t border-neutral-800 space-y-4">
-            <h2 className="text-md font-bold uppercase tracking-widest text-neutral-500 mb-2 flex items-center gap-2">
-              <MessageSquare size={16} className="text-emerald-500" />
-              Your Secure Complaint Channels
-            </h2>
-            <p className="text-[9px] text-neutral-600 font-bold uppercase tracking-wider leading-relaxed pr-2 font-mono">
-              COMMUNICATIONS ENCRYPTED. SENDER AND RECEIVER IDENTITY ARE COMPLETELY PROTECTED UNDER CONSTITUTIONAL PROTOCOLS.
-            </p>
-
-            <div className="space-y-3">
-              {anonymousComplaints.map((c) => {
-                const isActive = selectedComplainantThreadId === c.id;
-                return (
-                  <div
-                    key={c.id}
-                    className={`border rounded-2xl p-4 transition-all duration-200 ${
-                      isActive
-                        ? "bg-neutral-900 border-emerald-500/30"
-                        : "bg-neutral-900/40 border-neutral-800 hover:border-neutral-750"
-                    }`}
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-black uppercase text-orange-400 bg-orange-500/5 px-2 py-0.5 rounded border border-orange-500/10">
-                            {c.category || "General"}
-                          </span>
-                          <span className="text-[8px] font-mono text-neutral-500">
-                            Trans-ID: #{c.id.substring(0, 8)}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-neutral-400 line-clamp-2 italic pr-4">
-                          "{c.message}"
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2 self-end md:self-center">
-                        {c.anonymousThreadId ? (
-                          <button
-                            onClick={() =>
-                              setSelectedComplainantThreadId(
-                                isActive ? null : c.id
-                              )
-                            }
-                            className={`px-3.5 py-1.5 rounded-xl font-mono text-[9px] font-semibold uppercase tracking-wider transition-all cursor-pointer ${
-                              isActive
-                                ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/10 font-bold"
-                                : "bg-neutral-800 text-emerald-400 border border-emerald-500/10 hover:bg-neutral-750"
-                            }`}
-                          >
-                            {isActive ? "Close Channel" : "Open Secured Line"}
-                          </button>
-                        ) : (
-                          <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-neutral-500 bg-neutral-950 px-2.5 py-1.5 rounded-xl border border-neutral-850 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                            Line Pending Monitor Claim
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Chat Drawer */}
-                    {isActive && c.anonymousThreadId && (
-                      <div className="mt-4 pt-4 border-t border-neutral-800/60 animate-in fade-in slide-in-from-top-2 duration-350">
-                        <div className="p-3 bg-emerald-950/15 border border-emerald-500/10 rounded-xl mb-3 flex items-center gap-2 font-mono">
-                          <EyeOff size={11} className="text-emerald-400" />
-                          <span className="text-[8px] font-bold text-emerald-400 uppercase tracking-widest animate-pulse">
-                            Identity Encrypted / Secure Line Established
-                          </span>
-                        </div>
-                        <AnonymousChatTerminal
-                          threadId={c.id}
-                          senderType="complainant"
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {anonymousComplaints.length === 0 && (
-                <div className="bg-neutral-900/30 border border-neutral-850 border-dashed rounded-2xl p-8 py-10 text-center text-neutral-500 space-y-2">
-                  <EyeOff size={24} className="mx-auto text-neutral-750" />
-                  <p className="text-[10px] font-black uppercase tracking-wider">
-                    No Active Complaints
-                  </p>
-                  <p className="text-[9px] text-neutral-600 italic">
-                    When you submit anonymous complaints through the Black Box, your threads will appear here so you can chat anonymously with monitors.
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
         </div>
       </div>
 

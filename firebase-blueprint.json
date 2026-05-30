@@ -7,7 +7,7 @@
       "properties": {
         "username": { "type": "string" },
         "password": { "type": "string" },
-        "role": { "type": "string", "enum": ["USER", "ADMIN", "ADD_ADMIN", "MONITOR"] },
+        "role": { "type": "string", "enum": ["USER", "ADMIN", "ADD_ADMIN", "MONITOR", "RIT_CHIEF", "rit_chief"] },
         "warningLevel": { "type": "number" },
         "debtOwed": { "type": "number" },
         "debtToMe": { "type": "number" },
@@ -275,9 +275,26 @@
         "period": { "type": "string" }
       },
       "required": ["userId", "type", "claimed", "timestamp", "period"]
+    },
+    "ComplaintChat": {
+      "title": "Complaint Chat",
+      "description": "Anonymous chat thread message",
+      "type": "object",
+      "properties": {
+        "complaintId": { "type": "string" },
+        "senderType": { "type": "string", "enum": ["monitor", "complainant"] },
+        "senderUid": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["complaintId", "senderType", "senderUid", "message", "timestamp"]
     }
   },
   "firestore": {
+    "complaintChats/{id}": {
+      "schema": { "$ref": "#/entities/ComplaintChat" },
+      "description": "One-on-one anonymous chat history between complainant and assigned monitor"
+    },
     "debts/{id}": {
       "schema": { "$ref": "#/entities/NetDebt" },
       "description": "Collection of bilateral debt balances"

@@ -25,8 +25,9 @@ export default function Representatives() {
 
   const categorizedUsers = {
     admin: filteredUsers.filter(u => u.role === 'admin'),
+    rit_chief: filteredUsers.filter(u => u.role === 'rit_chief'),
     monitor: filteredUsers.filter(u => u.role === 'monitor'),
-    user: filteredUsers.filter(u => u.role === 'user' || !['admin', 'monitor'].includes(u.role))
+    user: filteredUsers.filter(u => u.role === 'user' || !['admin', 'monitor', 'rit_chief'].includes(u.role))
   };
 
   if (!currentUser) return null;
@@ -85,6 +86,20 @@ export default function Representatives() {
                   </div>
                 </section>
 
+                {/* RIT Chief */}
+                <section>
+                  <h3 className="text-sm font-black text-neutral-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <Shield size={16} className="text-amber-500" />
+                    RIT Chief
+                  </h3>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {(categorizedUsers.rit_chief || []).map(user => (
+                      <UserCard key={user.id} user={user} isAdmin={isAdmin} currentRole={currentUser?.role} onRoleChange={updateUserRole} availableRoles={roles} />
+                    ))}
+                    {categorizedUsers.rit_chief.length === 0 && <p className="text-neutral-600 text-xs italic">No high-enforcement staff logged.</p>}
+                  </div>
+                </section>
+
                 {/* Monitors */}
                 <section>
                   <h3 className="text-sm font-black text-neutral-500 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -120,6 +135,7 @@ export default function Representatives() {
                          <div className="flex items-center gap-4">
                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
                               role.id === 'admin' ? 'bg-red-500/10 text-red-500' :
+                              role.id === 'rit_chief' ? 'bg-amber-500/10 text-amber-500' :
                               role.id === 'monitor' ? 'bg-blue-500/10 text-blue-500' :
                               'bg-neutral-500/10 text-neutral-500'
                             }`}>

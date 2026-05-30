@@ -573,7 +573,7 @@ type State = {
   recalculateLeaderboard: () => Promise<void>;
   
   // Complaints (Black Box)
-  submitComplaint: (subject: string, complaint: string) => Promise<string>;
+  submitComplaint: (subject: string, complaint: string, extraFields?: any) => Promise<string>;
   claimComplaint: (complaintId: string) => Promise<void>;
   resolveComplaint: (complaintId: string) => Promise<void>;
   sendComplaintMessage: (complaintId: string, message: string) => Promise<void>;
@@ -1093,7 +1093,7 @@ export const useStore = create<State>()((set, get) => ({
 
   approveTransactionRequest: async (requestId, verdict) => {
     const { currentUser, logActivity, transactionRequests } = get();
-    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) {
+    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'rit_chief' && currentUser.role !== 'admin')) {
       throw new Error("UNAUTHORIZED");
     }
 
@@ -1211,7 +1211,7 @@ export const useStore = create<State>()((set, get) => ({
 
   rejectTransactionRequest: async (requestId, verdict) => {
     const { currentUser, logActivity, transactionRequests } = get();
-    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'admin')) {
+    if (!currentUser || (currentUser.role !== 'monitor' && currentUser.role !== 'rit_chief' && currentUser.role !== 'admin')) {
       throw new Error("UNAUTHORIZED");
     }
 
@@ -1387,7 +1387,7 @@ export const useStore = create<State>()((set, get) => ({
     if (!currentUser) return;
     
     // Monitors can only post to Monitoring or Resolving sections
-    if (currentUser.role === 'monitor' && section === 'GLOBAL') return;
+    if ((currentUser.role === 'monitor' || currentUser.role === 'rit_chief') && section === 'GLOBAL') return;
     if (currentUser.role === 'user') return;
     
     const id = uuidv4();
@@ -1533,11 +1533,13 @@ export const useStore = create<State>()((set, get) => ({
     const complaintsList = await getCollectionDocs('complaints');
     const anonymousCompls = await getCollectionDocs('anonymousComplaints');
     const complaintMsgs = await getCollectionDocs('complaintMessages');
+    const complaintChs = await getCollectionDocs('complaintChats');
     const resolvingDeck = await getCollectionDocs('resolvingDeck');
     backupData.complaints = [
       ...complaintsList.map(x => ({ ...x, _collection: 'complaints' })),
       ...anonymousCompls.map(x => ({ ...x, _collection: 'anonymousComplaints' })),
       ...complaintMsgs.map(x => ({ ...x, _collection: 'complaintMessages' })),
+      ...complaintChs.map(x => ({ ...x, _collection: 'complaintChats' })),
       ...resolvingDeck.map(x => ({ ...x, _collection: 'resolvingDeck' }))
     ];
 
@@ -1591,6 +1593,7 @@ export const useStore = create<State>()((set, get) => ({
       'chats',
       'directMessages',
       'complaintMessages',
+      'complaintChats',
       'complaints',
       'anonymousComplaints',
       'logs',
@@ -1677,6 +1680,7 @@ export const useStore = create<State>()((set, get) => ({
       'chats',
       'directMessages',
       'complaintMessages',
+      'complaintChats',
       'complaints',
       'anonymousComplaints',
       'logs',
@@ -1828,7 +1832,7 @@ export const useStore = create<State>()((set, get) => ({
 
   issueWarning: async (username, level, reason) => {
     const { currentUser, users, logActivity, warningRules } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) return;
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) return;
     
     const target = users.find(u => (u.username || '').toLowerCase() === (username || '').toLowerCase());
     if (!target) throw new Error("OPERATIVE_NOT_FOUND: User does not exist.");
@@ -2067,7 +2071,7 @@ export const useStore = create<State>()((set, get) => ({
 
   createResolvingCase: async (description, involvedUsers) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) return;
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) return;
 
     try {
       const id = uuidv4();
@@ -2100,7 +2104,7 @@ export const useStore = create<State>()((set, get) => ({
 
   createBill: async (title, category, description, priority) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) return;
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) return;
 
     try {
       const billId = uuidv4();
@@ -2127,7 +2131,7 @@ export const useStore = create<State>()((set, get) => ({
 
   updateBill: async (billId, title, description) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) return;
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) return;
 
     try {
       await updateDoc(doc(db, 'bills', billId), {
@@ -2161,7 +2165,7 @@ export const useStore = create<State>()((set, get) => ({
 
   postBillStaffComment: async (billId, message) => {
     const { currentUser } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) return;
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) return;
 
     const commentId = uuidv4();
     const comment: BillStaffComment = {
@@ -2201,7 +2205,7 @@ export const useStore = create<State>()((set, get) => ({
 
   updateAnonymousComplaintStatus: async (id, status) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) {
       throw new Error("UNAUTHORIZED");
     }
     try {
@@ -2214,7 +2218,7 @@ export const useStore = create<State>()((set, get) => ({
 
   assignAnonymousComplaint: async (id, monitorId) => {
     const { currentUser, logActivity, users } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) {
       throw new Error("UNAUTHORIZED");
     }
     try {
@@ -2233,7 +2237,7 @@ export const useStore = create<State>()((set, get) => ({
 
   updateAnonymousComplaintNotes: async (id, notes) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) {
       throw new Error("UNAUTHORIZED");
     }
     try {
@@ -2246,7 +2250,7 @@ export const useStore = create<State>()((set, get) => ({
 
   deleteAnonymousComplaint: async (id) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) {
       throw new Error("UNAUTHORIZED");
     }
     try {
@@ -2259,7 +2263,7 @@ export const useStore = create<State>()((set, get) => ({
 
   claimAnonymousComplaint: async (id) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) {
       throw new Error("UNAUTHORIZED");
     }
     try {
@@ -2278,7 +2282,7 @@ export const useStore = create<State>()((set, get) => ({
 
   openAnonymousLine: async (id) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) {
       throw new Error("UNAUTHORIZED");
     }
     try {
@@ -2889,7 +2893,7 @@ export const useStore = create<State>()((set, get) => ({
     const { currentUser, logActivity } = get();
     if (!currentUser) return;
     
-    if (groupId === 'monitoring' && currentUser.role !== 'monitor' && currentUser.role !== 'admin') return;
+    if (groupId === 'monitoring' && currentUser.role !== 'monitor' && currentUser.role !== 'rit_chief' && currentUser.role !== 'admin') return;
     
     const id = uuidv4();
     await setDoc(doc(db, 'groups', groupId, 'posts', id), {
@@ -2985,7 +2989,7 @@ export const useStore = create<State>()((set, get) => ({
     }
   },
 
-  submitComplaint: async (subject, complaint) => {
+  submitComplaint: async (subject, complaint, extraFields = {}) => {
     const { currentUser, logActivity } = get();
     if (!currentUser) throw new Error("UNAUTHORIZED");
     const docRef = await addDoc(collection(db, "complaints"), {
@@ -2998,15 +3002,16 @@ export const useStore = create<State>()((set, get) => ({
       assignedMonitorName: null,
       anonymousThreadId: null,
       internalNotes: "",
-      lastMessageAt: serverTimestamp()
+      lastMessageAt: serverTimestamp(),
+      ...extraFields
     });
-    await logActivity('COMPLAINT_FILED', { subject, id: docRef.id }, undefined, undefined, 'Black Box');
+    await logActivity('COMPLAINT_FILED', { subject, id: docRef.id, ...extraFields }, undefined, undefined, 'Black Box');
     return docRef.id;
   },
 
   claimComplaint: async (complaintId) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
     await updateDoc(doc(db, "complaints", complaintId), {
       assignedMonitorId: currentUser.uid,
       assignedMonitorName: `@${currentUser.username}`,
@@ -3029,9 +3034,9 @@ export const useStore = create<State>()((set, get) => ({
     const { currentUser } = get();
     if (!currentUser) throw new Error("UNAUTHORIZED");
     
-    await addDoc(collection(db, "complaintMessages"), {
+    await addDoc(collection(db, "complaintChats"), {
       complaintId,
-      senderType: currentUser.role === 'monitor' || currentUser.role === 'admin' ? 'monitor' : 'complainant',
+      senderType: currentUser.role === 'monitor' || currentUser.role === 'rit_chief' || currentUser.role === 'admin' ? 'monitor' : 'complainant',
       senderUid: currentUser.uid,
       message,
       timestamp: new Date().toISOString(),
@@ -3045,21 +3050,21 @@ export const useStore = create<State>()((set, get) => ({
 
   updateComplaintStatus: async (complaintId, status) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
     await updateDoc(doc(db, "complaints", complaintId), { status });
     await logActivity('UPDATE_COMPLAINT_STATUS', { id: complaintId, status }, undefined, undefined, 'Complaints Workspace');
   },
 
   updateComplaintNotes: async (complaintId, notes) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
     await updateDoc(doc(db, "complaints", complaintId), { internalNotes: notes });
     await logActivity('UPDATE_COMPLAINT_NOTES', { id: complaintId }, undefined, undefined, 'Complaints Workspace');
   },
 
   deleteComplaint: async (complaintId) => {
     const { currentUser, logActivity } = get();
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'rit_chief' && currentUser.role !== 'monitor')) throw new Error("UNAUTHORIZED");
     await deleteDoc(doc(db, "complaints", complaintId));
     await logActivity('DELETE_COMPLAINT', { id: complaintId }, undefined, undefined, 'Complaints Workspace');
   },
@@ -3148,14 +3153,27 @@ onSnapshot(collection(db, 'roles'), (snapshot) => {
   const roles = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AppRole));
   useStore.setState({ roles });
   
-  // Seed default roles if empty
-  if (snapshot.empty && useStore.getState().currentUser?.role === 'admin') {
-    const defaults = [
-      { id: 'admin', roleName: 'Administrator', permissions: ['FULL_ACCESS'] },
-      { id: 'monitor', roleName: 'Monitor', permissions: ['VIEW_AUDIT', 'MANAGE_CASES'] },
-      { id: 'user', roleName: 'Standard User', permissions: ['BASIC_ACCESS'] }
-    ];
-    defaults.forEach(r => setDoc(doc(db, 'roles', r.id), r));
+  // Seed default roles if empty or if rit_chief is missing
+  const currentUser = useStore.getState().currentUser;
+  if (currentUser?.role === 'admin') {
+    if (snapshot.empty) {
+      const defaults = [
+        { id: 'admin', roleName: 'Administrator', permissions: ['FULL_ACCESS'] },
+        { id: 'rit_chief', roleName: 'RIT Chief', permissions: ['ALL_MONITOR_PERMISSIONS', 'ENFORCE_DECISIONS', 'MANAGE_CASES', 'VIEW_AUDIT'] },
+        { id: 'monitor', roleName: 'Monitor', permissions: ['VIEW_AUDIT', 'MANAGE_CASES'] },
+        { id: 'user', roleName: 'Standard User', permissions: ['BASIC_ACCESS'] }
+      ];
+      defaults.forEach(r => setDoc(doc(db, 'roles', r.id), r));
+    } else {
+      const hasRitChief = roles.some(r => r.id === 'rit_chief');
+      if (!hasRitChief) {
+        setDoc(doc(db, 'roles', 'rit_chief'), {
+          id: 'rit_chief',
+          roleName: 'RIT Chief',
+          permissions: ['ALL_MONITOR_PERMISSIONS', 'ENFORCE_DECISIONS', 'MANAGE_CASES', 'VIEW_AUDIT']
+        });
+      }
+    }
   }
 });
 

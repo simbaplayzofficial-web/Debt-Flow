@@ -18,7 +18,18 @@ service cloud.firestore {
       return isSignedIn() && (
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "monitor"
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "monitor" ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "rit_chief"
+        )) ||
+        (request.auth.token.email != null && 
+         request.auth.token.email.toLowerCase() in ['patty@debtflow.com', 'chiti@debtflow.com', 'simbaplayzofficial@gmail.com', 'simba@debtflow.com'])
+      );
+    }
+    function isRitChief() {
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "rit_chief"
         )) ||
         (request.auth.token.email != null && 
          request.auth.token.email.toLowerCase() in ['patty@debtflow.com', 'chiti@debtflow.com', 'simbaplayzofficial@gmail.com', 'simba@debtflow.com'])
@@ -51,7 +62,7 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     function isValidUser(data) {
       return data.username is string && data.username.size() >= 3 && data.username.size() <= 64 &&
-             data.role in ['user', 'monitor', 'admin'] &&
+             data.role in ['user', 'monitor', 'rit_chief', 'admin'] &&
              (!('requestedRole' in data) || data.requestedRole == null || data.requestedRole in ['monitor', 'admin']) &&
              (!('status' in data) || data.status in ['active', 'restricted', 'suspended']) &&
              (!('warningCount' in data) || data.warningCount is number) &&
@@ -173,11 +184,26 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     match /complaints/{id} {
       allow create: if isSignedIn();
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.createdByUid || isMonitor() || isAdmin());
-      allow update: if isSignedIn() && (isMonitor() || isAdmin());
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.createdByUid || isMonitor());
+      allow update: if isSignedIn() && (
+        isRitChief() || (
+          isMonitor() && (
+            incoming().status in ['pending', 'under_review', 'resolved_proposed', 'archived_proposed']
+          )
+        )
+      );
     }
 
     match /complaintMessages/{id} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && (
+        get(/databases/$(database)/documents/complaints/$(resource.data.complaintId)).data.createdByUid == request.auth.uid ||
+        isMonitor() ||
+        isAdmin()
+      );
+    }
+
+    match /complaintChats/{id} {
       allow create: if isSignedIn();
       allow read: if isSignedIn() && (
         get(/databases/$(database)/documents/complaints/$(resource.data.complaintId)).data.createdByUid == request.auth.uid ||
@@ -205,7 +231,7 @@ service cloud.firestore {
     match /resolvingDeck/{id} {
       allow read: if isSignedIn();
       allow create: if isMonitor();
-      allow update: if isMonitor();
+      allow update: if isRitChief();
     }
 
     match /justiceNexus/{id} {
@@ -324,7 +350,7 @@ service cloud.firestore {
     match /bills/{billId} {
       allow read: if isSignedIn();
       allow create: if isMonitor();
-      allow update: if isMonitor();
+      allow update: if isRitChief();
       allow delete: if isAdmin();
 
       match /comments/{commentId} {

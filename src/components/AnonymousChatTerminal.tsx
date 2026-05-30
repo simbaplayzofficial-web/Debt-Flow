@@ -47,7 +47,7 @@ export const AnonymousChatTerminal: React.FC<AnonymousChatTerminalProps> = ({
     setError(null);
     
     const q = query(
-      collection(db, 'complaintMessages'),
+      collection(db, 'complaintChats'),
       where('complaintId', '==', threadId),
       orderBy('createdAt', 'asc')
     );

@@ -8,7 +8,7 @@ import {
 import { motion } from 'motion/react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { BlackBox } from './BlackBox';
+import { ComplaintBox } from './ComplaintBox';
 import { ChatterPanel } from './ChatterPanel';
 
 export default function Groups() {
@@ -100,7 +100,7 @@ export default function Groups() {
             </div>
           ) : activeGroup === 'blackbox' ? (
             <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar bg-neutral-950/20">
-              <BlackBox source="groups_blackbox" />
+              <ComplaintBox />
             </div>
           ) : activeGroup === 'monitoring' ? (
             <div className="flex flex-col h-full bg-neutral-950/20">
@@ -190,7 +190,7 @@ export default function Groups() {
                           <p className="text-xs text-neutral-400 leading-relaxed max-w-4xl">{selectedBill.description}</p>
                         </div>
                         
-                        {currentUser?.role === 'admin' && selectedBill.status !== 'resolved' && (
+                        {(currentUser?.role === 'admin' || currentUser?.role === 'rit_chief') && selectedBill.status !== 'resolved' && (
                           <div className="flex gap-4 pt-4 border-t border-neutral-800">
                              {isResolvingBill ? (
                                <div className="flex-1 space-y-4">

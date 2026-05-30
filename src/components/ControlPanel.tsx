@@ -318,10 +318,12 @@ export default function ControlPanel() {
                             <div className="flex items-center gap-3.5">
                               <div className={`w-10 h-10 bg-neutral-900 rounded-xl flex items-center justify-center text-neutral-500 border relative overflow-hidden group-hover:border-red-500/20 transition-all ${
                                 user.role === 'admin' ? 'border-red-500/20' :
+                                user.role === 'rit_chief' ? 'border-amber-500/25' :
                                 user.role === 'monitor' ? 'border-orange-500/25' : 'border-neutral-850'
                               }`}>
                                 <UserIcon size={16} className={
                                   user.role === 'admin' ? 'text-red-500' :
+                                  user.role === 'rit_chief' ? 'text-amber-400' :
                                   user.role === 'monitor' ? 'text-orange-400' : 'text-neutral-400'
                                 } />
                                 {user.status === 'suspended' && (
@@ -357,6 +359,11 @@ export default function ControlPanel() {
                               {user.role === 'admin' && (
                                 <span className="px-2.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border bg-red-500/10 border-red-500/30 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.15)] select-none">
                                   🛡️ Admin
+                                </span>
+                              )}
+                              {user.role === 'rit_chief' && (
+                                <span className="px-2.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border bg-amber-500/10 border-amber-500/30 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.15)] select-none">
+                                  ⚡ RIT Chief
                                 </span>
                               )}
                               {user.role === 'monitor' && (
@@ -425,7 +432,7 @@ export default function ControlPanel() {
 
                               {/* Reassign rank picker */}
                               <div className="flex bg-neutral-950 p-[3px] border border-neutral-900 rounded-xl gap-0.5">
-                                {(['user', 'monitor', 'admin'] as const).map((r) => {
+                                {(['user', 'monitor', 'rit_chief', 'admin'] as const).map((r) => {
                                   const isActive = (user.role || 'user') === r;
                                   return (
                                     <button
@@ -442,6 +449,7 @@ export default function ControlPanel() {
                                       className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all disabled:opacity-20 cursor-pointer ${
                                         isActive
                                           ? r === 'admin' ? 'bg-red-500/10 border border-red-500/20 text-red-500 font-extrabold shadow-[0_0_10px_rgba(239,68,68,0.1)]'
+                                            : r === 'rit_chief' ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 font-extrabold shadow-[0_0_10px_rgba(245,158,11,0.1)]'
                                             : r === 'monitor' ? 'bg-orange-500/10 border border-orange-500/20 text-orange-400 font-extrabold'
                                             : 'bg-neutral-900 border border-neutral-800 text-neutral-300 font-extrabold'
                                           : 'text-neutral-600 hover:text-neutral-400'
